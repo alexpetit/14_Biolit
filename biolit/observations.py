@@ -48,7 +48,8 @@ def full_upper_hierarchy(frame: pl.DataFrame) -> pl.DataFrame:
             if not i
             else (col(TAXREF_HIERARCHY[i - 1]).fill_null("NA") + pl.lit(" | "))
         )
-        return frame.with_columns((prefix + col(name).fill_null("NA")).alias(name))
+        frame = frame.with_columns((prefix + col(name).fill_null("NA")).alias(name))
+    return frame
 
 
 def _observation_quality(frame: pl.DataFrame) -> pl.DataFrame:
