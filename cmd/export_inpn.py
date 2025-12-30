@@ -15,8 +15,8 @@ if True:
 
 
 def main():
-    # format_taxref()
-    # format_observations()
+    format_taxref()
+    format_observations()
     biolit_df = pl.read_parquet(DATADIR / "biolit_valid_observations.parquet")
     plot_species_distribution(biolit_df, fn=DATADIR / "distribution_images.html")
 
