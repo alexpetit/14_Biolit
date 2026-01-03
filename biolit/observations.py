@@ -25,7 +25,7 @@ def format_observations():
                 "validee"
             )  # & ~col("espece_identifiable_?").is_in(["non-identifiable"])
         )
-        .join(taxref, how="left", left_on="nom_scientifique", right_on="lb_nom")
+        .join(taxref, how="left", left_on="nom_scientifique", right_on="species_name")
         .pipe(full_upper_hierarchy)
         .pipe(_observation_quality)
     )
@@ -64,7 +64,7 @@ def _observation_quality(frame: pl.DataFrame) -> pl.DataFrame:
 
 def _check_missing_taxref(frame: pl.DataFrame) -> pl.DataFrame:
     missing_taxref_filter = (
-        col("cd_nom").is_null() & col("nom_scientifique").is_not_null()
+        col("species_id").is_null() & col("nom_scientifique").is_not_null()
     )
     missing_taxref = (
         frame.filter()

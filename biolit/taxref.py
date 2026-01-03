@@ -22,24 +22,31 @@ def format_taxref():
                 + col("classe").is_not_null() * 1000
             ).alias("priority"),
         )
-        .select(["cd_nom", "lb_nom", "priority"] + TAXREF_HIERARCHY)
+        .select(
+            [
+                col("cd_nom").alias("species_id"),
+                col("lb_nom").alias("species_name"),
+                "priority",
+            ]
+            + TAXREF_HIERARCHY
+        )
     )
     _check_duplicates(taxref)
     taxref = (
-        taxref.sort(["lb_nom", "priority"], descending=[False, True])
-        .unique("lb_nom")
+        taxref.sort(["species_name", "priority"], descending=[False, True])
+        .unique("species_name")
         .drop("priority")
     )
     taxref.write_parquet(DATADIR / "taxref.parquet")
 
 
 def _check_duplicates(frame: pl.DataFrame):
-    frame = frame.sort("lb_nom").filter(col("lb_nom").is_duplicated())
+    frame = frame.sort("species_name").filter(col("species_name").is_duplicated())
     if frame.is_empty():
         return
     frame.write_csv(DATADIR / "taxref_duplicate_species.csv")
     LOGGER.warning(
         "taxref_duplicate_species",
         n_species=len(frame),
-        n_names=frame["lb_nom"].n_unique(),
+        n_names=frame["species_name"].n_unique(),
     )
