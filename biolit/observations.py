@@ -21,9 +21,8 @@ def format_observations():
             col("espece_identifiable_?").fill_null("Identifiable"),
         )
         .filter(
-            col(
-                "validee"
-            )  # & ~col("espece_identifiable_?").is_in(["non-identifiable"])
+            col("validee")
+            & ~col("espece_identifiable_?").is_in(["non-identifiable", "Ne sais pas"])
         )
         .join(taxref, how="left", left_on="nom_scientifique", right_on="species_name")
         .pipe(full_upper_hierarchy)
@@ -56,9 +55,9 @@ def full_upper_hierarchy(frame: pl.DataFrame) -> pl.DataFrame:
 
 def _observation_quality(frame: pl.DataFrame) -> pl.DataFrame:
     return (
-        frame.pipe(_check_missing_nom)
+        frame.pipe(_check_validated_non_identifiable)
+        .pipe(_check_missing_nom)
         .pipe(_check_missing_taxref)
-        .pipe(_check_validated_non_identifiable)
     )
 
 
@@ -105,6 +104,9 @@ def _check_validated_non_identifiable(frame: pl.DataFrame) -> pl.DataFrame:
     errors = frame.filter(filt).select(
         "lien", "espece_identifiable_?", "nom_scientifique"
     )
+    if errors.is_empty():
+        return frame
+
     errors.write_csv(DATADIR / "biolit_observation_validated_non_identifiable.csv")
     LOGGER.warning("observation_quality_validated_non_identifiable", n_obs=len(errors))
     with pl.Config(fmt_str_lengths=50):
