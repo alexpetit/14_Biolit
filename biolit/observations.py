@@ -8,6 +8,8 @@ from biolit import DATADIR, EXPORTDIR
 from biolit.taxref import TAXREF_HIERARCHY, format_taxref
 from biolit.visualisation.species_distribution import plot_species_distribution
 
+import requests
+
 LOGGER = structlog.get_logger()
 
 
@@ -43,6 +45,64 @@ def format_observations():
         species=biolit["nom_scientifique"].n_unique(),
     )
     biolit.write_parquet(DATADIR / "biolit_valid_observations.parquet")
+
+
+###Test export from API
+
+def fetch_biolit_api(per_page: int = 1000):
+    all_data = []
+    page = 1
+    print("Téléchargement des données depuis l'API Biolit...")
+    while True:
+        url = f"https://biolit.fr/wp-json/biolitapi/v1/observations/all?per_page={per_page}&page={page}"
+        r = requests.get(url)
+        data = r.json()
+        if not data:
+            break
+        all_data.extend(data)
+        page += 1
+        print(f"Page {page} téléchargée, total observations : {len(all_data)}")
+
+    if not all_data:
+        return pl.DataFrame([])
+    print(pl.DataFrame(all_data).head())
+    print(pl.DataFrame(all_data).shape)
+    return pl.DataFrame(all_data)
+
+
+def adapt_api_to_parquet_schema(df):
+    return (
+        df.rename({
+            "id": "id",
+            "link": "lien",
+            "author": "auteur",
+            "date": "date",
+            "heure-debut": "heure-de-debut",
+            "heure-fin": "heure-de-fin",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "photos": "images",
+            "espece": "nom_scientifique",
+            "common": "nom_commun",
+        })
+        .with_columns([
+            pl.col("lien").str.split("/").list.get(-1).alias("titre"),  # dernier segment du lien
+            pl.lit(True).alias("validee"),
+            pl.lit("Identifiable").alias("espece_identifiable_?"),
+            pl.lit("API").alias("protocole"),
+        ])
+    )
+def load_biolit_from_api() -> pl.DataFrame:
+    df_api = fetch_biolit_api()
+    if df_api.is_empty():
+        return df_api
+    print(adapt_api_to_parquet_schema(df_api).head())
+    print(adapt_api_to_parquet_schema(df_api).columns)
+    return adapt_api_to_parquet_schema(df_api)
+
+def format_observations_from_api():
+### A faire plus tard
+    return 
 
 
 def full_upper_hierarchy(frame: pl.DataFrame) -> pl.DataFrame:
@@ -156,3 +216,8 @@ def learnable_taxonomy(
         for taxon in learnables
     ] + [remaining_taxon]
     return sorted(set(itertools.chain(*learnable_sublevels)))
+
+if __name__ == "__main__":
+    load_biolit_from_api()
+
+

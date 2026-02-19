@@ -64,3 +64,6 @@ diff_json = df.join(
 print("Présents dans JSON mais pas dans CSV :")
 print(diff_json.shape)
 print(diff_json.select("id").head())
+print(df_csv.columns)
+df = pl.read_parquet("data/biolit_valid_observations.parquet")
+print(df.columns)
