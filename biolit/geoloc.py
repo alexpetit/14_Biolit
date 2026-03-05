@@ -1,11 +1,11 @@
 import geopandas as gpd
 from shapely.geometry import Point
 import polars as pl
+import pandas as pd
 import requests
 import structlog
 from pathlib import Path
 import zipfile
-# Si besoin de checks pour tracer la carte
 import os
 import folium
 from folium.plugins import MarkerCluster
@@ -15,96 +15,96 @@ from biolit import DATADIR, DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMU
 LOGGER = structlog.get_logger()
 
 
-'''
+def geoloc_enrichie_data_biolit(file: Path):
+    '''
+    Fichier à enrichir : DATADIR / "biolit_valid_observations.parquet"
     Fonction finale :
         - Enrichissement de la commune la plus proche
-        - Création de la colonne "is_coastal" -> es ce que le point est proche du littoral
+        - Création de la colonne "is_coastal" -> est ce que le point est proche du littoral
         - Export vers fichier parquet
-'''
+    '''
+    ''' Points Biolit '''
+    if not _check_file_existence(file):
+        return
+    df_biolit = get_biolit_df(file)
 
-def geoloc_enrichie_data_biolit():
-    fn = DATADIR / "biolit_valid_observations.parquet"
+    ''' Informations sur la commune (nom + region + departement) '''
+    df = get_info_nearest_commune(df_biolit)
 
-    df = get_info_nearest_commune(fn)
-    export_path_communes = DATADIR / "data_enrichi_with_communes.parquet"
-    export_path_communes.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(export_path_communes)
-    LOGGER.info(f"Files exported: {export_path_communes}")
-    df = check_geoloc_distance_to_coast(export_path_communes, 8000)
-    export_path_is_coastal = DATADIR / "data_enrichi_with_communes_and_is_coastal.parquet"
-    df.to_parquet(export_path_is_coastal)
-    LOGGER.info(f"Files exported: {export_path_is_coastal}")
+    ''' Information sur la distance à la côte (is_coastal) '''
+    df_coastal = get_info_distance_to_coast(df, 8000)
 
-'''
-    Téléchargement des fichiers permettant d'enrichir les données Biolit sur les communes + Littoral Monde
-    Fichiers issus du site data.gouv :
-        DATA_GOUV_CONTOUR_COMMUNES_URL = "https://www.data.gouv.fr/api/1/datasets/r/00c0c560-3ad1-4a62-9a29-c34c98c3701e"
-        DATA_GOUV_INFO_COMMUNES_URL = "https://www.data.gouv.fr/api/1/datasets/r/f5df602b-3800-44d7-b2df-fa40a0350325"
-    Fichier issu de OpenStreetMap : tracé du littoral (monde)
-        WORLD_COAST_LINES_URL = "https://osmdata.openstreetmap.de/download/coastlines-split-4326.zip"
-'''
+    ''' Export '''
+    export_path_geoloc_enrichie = DATADIR / "data_enrichi_with_communes_and_is_coastal.parquet"
+    export_path_geoloc_enrichie.parent.mkdir(parents=True, exist_ok=True)
+    df_coastal.to_parquet(export_path_geoloc_enrichie)
+    LOGGER.info(f"Files exported: {export_path_geoloc_enrichie}")
 
-def get_geometry_communes():
-    fn = DATADIR / "geoloc" / "data_gouv" / "contours_communes.json"
-    if not _check_file_existence(fn):
-        _download_data_contour_communes(fn)
-
-    contours_communes = (
-        gpd.read_file(fn, layer="a_com2022")
-        .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
-    )
-    LOGGER.info("contours_communes_loaded", count=len(contours_communes))
-    return contours_communes
-
-def get_info_communes():
-    fn = DATADIR / "geoloc" / "data_gouv" / "info_communes.csv"
-    if not _check_file_existence(fn):
-        _download_data_info_communes(fn)
-
-    info_communes = (
-        pl.read_csv(fn, ignore_errors = True, schema_overrides={"code_insee": pl.Utf8})
-    )
-    LOGGER.info("info_communes_loaded", count=len(info_communes))
-    return info_communes
-
-def get_trace_littoral():
-    fn = DATADIR / "geoloc" / "open_street_map" / "coastlines-split-4326" / "lines.shp"
-    if not _check_file_existence(fn):
-        _download_data_trace_littoral(fn)
-
-    coast_gdf = gpd.read_file(fn)
-    coast_gdf = coast_gdf.to_crs(epsg=2154)
-
-    LOGGER.info("info_coast_loaded", count=len(coast_gdf))
-    return coast_gdf
-
-def _check_file_existence(file: Path):
-    if not file.exists():
-        LOGGER.info("file_missing", path=str(file))
-        return False
-
-    if not file.is_file():
-        LOGGER.fatal(
-            "The following path has been created, but it is not a standard file",
-            path=file
+def get_biolit_df(file: Path):
+    ''' Fonction qu'il faudra modifier une fois qu'on aura l'export clean de la donnée biolit '''
+    biolit_df = (
+        pl.read_parquet(file)
         )
-    return True
+    biolit_df = biolit_df.with_columns([
+        pl.col("longitude_-_n1")
+        .str.replace(",", ".")
+        .cast(pl.Float64),
+        pl.col("latitude_-_n1")
+        .str.replace(",", ".")
+        .cast(pl.Float64)
+    ])
 
-def _download_data_contour_communes(targetpath: Path):
+    biolit_df = biolit_df.to_pandas()
+
+    LOGGER.info("biolit df uploaded", count=len(biolit_df))
+    return biolit_df # pd.Dataframe
+
+def download_geometry_communes(targetpath: Path):
+    '''
+    Fonction permettant de récupérer les géométries des communes depuis :
+        DATA_GOUV_CONTOUR_COMMUNES_URL = "https://www.data.gouv.fr/api/1/datasets/r/00c0c560-3ad1-4a62-9a29-c34c98c3701e"
+    '''
     targetpath.parent.mkdir(parents=True, exist_ok=True)
     _download_file_from_url(DATA_GOUV_CONTOUR_COMMUNES_URL, targetpath)
     if not targetpath.is_file():
         LOGGER.fatal("Didn't manage to properly extract the file with municipalities borders")
 
-def _download_data_info_communes(targetpath: Path):
+def get_geometry_communes(file: Path):
+    if _check_file_existence(file):
+        geometry_communes = (
+            gpd.read_file(file, layer="a_com2022")
+            .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
+        )
+        LOGGER.info("geometry_communes_loaded", count=len(geometry_communes))
+    return geometry_communes # gpd.GeoDataframe
+
+def download_info_communes(targetpath: Path):
+    '''
+    Fonction permettant de récupérer les géométries des communes depuis :
+        DATA_GOUV_INFO_COMMUNES_URL = "https://www.data.gouv.fr/api/1/datasets/r/f5df602b-3800-44d7-b2df-fa40a0350325"
+    '''
     targetpath.parent.mkdir(parents=True, exist_ok=True)
     _download_file_from_url(DATA_GOUV_INFO_COMMUNES_URL, targetpath)
     if not targetpath.is_file():
         LOGGER.fatal("Didn't manage to properly extract the file with municipalities information")
 
-def _download_data_trace_littoral(targetpath: Path):
-    targetpath.parent.mkdir(parents=True, exist_ok=True)
+def get_info_communes(file: Path):
+    if _check_file_existence(file):
+        info_communes = (
+            pl.read_csv(file, ignore_errors = True, schema_overrides={"code_insee": pl.Utf8})
+        )
+        # Filtre sur les colonnes qui nous intéressent
+        info_communes = info_communes.select(["code_insee", "code_postal", "reg_nom", "dep_nom"]).to_pandas()
 
+        LOGGER.info("info_communes_loaded", count=len(info_communes))
+    return info_communes # pandas Dataframe
+
+def download_trace_littoral(targetpath: Path):
+    '''
+    Fonction permettant de récupérer le tracé du littoral (monde) depuis OpenStreetMap :
+        WORLD_COAST_LINES_URL = "https://osmdata.openstreetmap.de/download/coastlines-split-4326.zip"
+    '''
+    targetpath.parent.mkdir(parents=True, exist_ok=True)
     base_path = DATADIR / "geoloc" / "open_street_map"
     zip_path = base_path / "coastlines.zip"
     extract_path = base_path / "coastlines-split-4326"
@@ -126,6 +126,25 @@ def _download_data_trace_littoral(targetpath: Path):
     else:
         LOGGER.info("Shapefile ready", file=str(shp_files[0]))
 
+def get_trace_littoral(file: Path):
+    if _check_file_existence(file):
+        coast_gdf = gpd.read_file(file)
+        coast_gdf = coast_gdf.to_crs(epsg=2154)
+        LOGGER.info("info_coast_loaded", count=len(coast_gdf))
+    return coast_gdf # gpd.GeoDataframe
+
+def _check_file_existence(file: Path):
+    if not file.exists():
+        LOGGER.info("file_missing", path=str(file))
+        return False
+
+    if not file.is_file():
+        LOGGER.fatal(
+            "The following path has been created, but it is not a standard file",
+            path=file
+        )
+    return True
+
 def _download_file_from_url(url: str, targetpath: Path):
     LOGGER.info("download_start", url=url)
 
@@ -138,20 +157,16 @@ def _download_file_from_url(url: str, targetpath: Path):
 
     LOGGER.info("download_success", path=str(targetpath))
 
-
-
-'''
-    Fonctions permettant d'attribuer à un point Biolit la commune la plus proche.
-'''
-
-def distance_to_communes(point: Point, communes_gdf: gpd.GeoDataFrame, sindex, search_radius: float):
-    ''' Fonction permettant de déterminer le polygon le plus proche du point '''
+def distance_to_communes(point: Point, communes_gdf: gpd.GeoDataFrame, sindex, search_radius: float = 20000):
+    '''
+    Fonction permettant de déterminer le polygon le plus proche du point
+    '''
     candidate_idx = list(
         sindex.intersection(point.buffer(search_radius).bounds)
     )
 
     if not candidate_idx:
-        return search_radius, None, None
+        return None, None, None
 
     candidates = communes_gdf.iloc[candidate_idx]
     distances = candidates.distance(point)
@@ -162,59 +177,41 @@ def distance_to_communes(point: Point, communes_gdf: gpd.GeoDataFrame, sindex, s
         communes_gdf.loc[min_idx, "code_insee"]
     )
 
-def get_info_nearest_commune(file_path: Path):
-    ''' On détermine la commune la plus proche '''
-    communes = get_geometry_communes()
-    sindex = communes.sindex
-
-    biolit_df = (
-        pl.read_parquet(file_path)
-        )
-    biolit_df = biolit_df.with_columns([
-        pl.col("longitude_-_n1")
-        .str.replace(",", ".")
-        .cast(pl.Float64),
-        pl.col("latitude_-_n1")
-        .str.replace(",", ".")
-        .cast(pl.Float64)
-    ])
-
-    # Convertir en pandas avant GeoDataFrame
-    biolit_pd = biolit_df.to_pandas()
-
-    # Créer GeoDataFrame
+def get_info_nearest_commune(frame: pd.DataFrame):
+    '''
+    Fonction permettant d'attribuer à un point Biolit la commune la plus proche + info departement / region
+    '''
+    # Points DB Biolit
+    biolit_df = frame
     gdf = gpd.GeoDataFrame(
-        biolit_pd,
-        geometry=gpd.points_from_xy(biolit_pd["longitude_-_n1"], biolit_pd["latitude_-_n1"]),
+        biolit_df,
+        geometry=gpd.points_from_xy(biolit_df["longitude_-_n1"], biolit_df["latitude_-_n1"]),
         crs="EPSG:4326"
     ).to_crs(epsg=2154)
 
-    LOGGER.info("biolit df uploaded", count=len(biolit_df))
+    # Information Géometrie Communes
+    path_geometry_communes = DATADIR / "geoloc" / "data_gouv" / "geometry_communes.json"
+    if not _check_file_existence(path_geometry_communes):
+        download_geometry_communes(path_geometry_communes)
 
-    distances = []
-    nom_communes = []
-    code_insee = []
+    communes = get_geometry_communes(path_geometry_communes)
+    sindex = communes.sindex
 
-    for p in gdf.geometry:
-        d, n, c = distance_to_communes(p, communes, sindex, search_radius=20000)
-        distances.append(d)
-        nom_communes.append(n)
-        code_insee.append(c)
-
-
-    gdf["distance_commune_m"] = distances
-    gdf["nearest_commune"] = nom_communes
-    gdf["code_insee"] = code_insee
+    # Recherche de la commune la plus proche
+    results = gdf.geometry.apply(
+        lambda p: distance_to_communes(p, communes, sindex, search_radius=20000)
+    )
+    gdf["distance_commune_m"] = results.apply(lambda x: x[0])
+    gdf["nearest_commune"] = results.apply(lambda x: x[1])
+    gdf["code_insee"] = results.apply(lambda x: x[2])
 
     df_export = gdf.drop(columns="geometry")
-    LOGGER.info("Nearest Municipality exported", count=len(df_export))
 
-    ''' On récupère les informations de la commune la plus proche '''
-    info_communes = get_info_communes()
-    info_communes = info_communes.to_pandas()
-
-    ''' Filtre sur les colonnes qui nous intéressent '''
-    info_communes = info_communes[["code_insee", "code_postal", "reg_nom", "dep_nom"]]
+    # Informations sur la commune la plus proche
+    path_info_communes = DATADIR / "geoloc" / "data_gouv" / "info_communes.csv"
+    if not _check_file_existence(path_info_communes):
+        download_info_communes(path_info_communes)
+    info_communes = get_info_communes(path_info_communes)
 
     df_export = df_export.merge(
         info_communes,
@@ -225,38 +222,34 @@ def get_info_nearest_commune(file_path: Path):
     LOGGER.info("Nearest Municipality enriched with dep_name & region_name", count=len(df_export))
     return df_export
 
-
-'''
-    Fonctions permettant de calculer la distance à la côte
-'''
-
-def distance_to_coast(point: Point, coast_gdf: gpd.GeoDataFrame, sindex, search_radius: float):
+def distance_to_coast(point: Point, coast_gdf: gpd.GeoDataFrame, sindex, search_radius: float = 20000):
     ''' Fonction de Calcul de distance entre le point et la ligne de côte '''
     candidate_idx = list(
         sindex.intersection(point.buffer(search_radius).bounds)
     )
 
     if not candidate_idx:
-        return search_radius
+        return
 
     candidates = coast_gdf.iloc[candidate_idx]
     return candidates.distance(point).min()
 
-def check_geoloc_distance_to_coast(file_path: Path, distance_max: float):
-    coast_gdf = get_trace_littoral()
+def get_info_distance_to_coast(frame: pd.DataFrame, distance_max: float = 8000):
+    # Récupération Tracé Littoral
+    path_trace_littoral = DATADIR / "geoloc" / "open_street_map" / "coastlines-split-4326" / "lines.shp"
+    if not _check_file_existence(path_trace_littoral):
+        download_trace_littoral(path_trace_littoral)
+
+    coast_gdf = get_trace_littoral(path_trace_littoral)
     coast_sindex = coast_gdf.sindex
 
-    biolit_df = (
-        pl.read_parquet(file_path)
-        )
-    LOGGER.info("biolit_df", count=len(biolit_df))
-
-
-    gdf = gpd.GeoDataFrame(biolit_df.to_pandas(), geometry=gpd.points_from_xy(biolit_df["longitude_-_n1"], biolit_df["latitude_-_n1"]), crs="EPSG:4326").to_crs(epsg=2154)
+    # Points Biolit
+    biolit_df = frame
+    gdf = gpd.GeoDataFrame(biolit_df, geometry=gpd.points_from_xy(biolit_df["longitude_-_n1"], biolit_df["latitude_-_n1"]), crs="EPSG:4326").to_crs(epsg=2154)
     distances = []
 
     for p in gdf.geometry:
-        d = round(distance_to_coast(p, coast_gdf, coast_sindex, search_radius=20000))
+        d = distance_to_coast(p, coast_gdf, coast_sindex, search_radius=20000)
         distances.append(d)
 
     gdf["distance_to_coast"] = distances
@@ -271,40 +264,39 @@ def check_geoloc_distance_to_coast(file_path: Path, distance_max: float):
     LOGGER.info("Biolit Data Points enriched with distance to coast", nb_not_coastal = (~gdf_export["is_coastal"]).sum(), nb_coastal = gdf_export["is_coastal"].sum())
     return gdf_export
 
-'''
+def carte_points_biolit_checks_geoloc(file_to_map: Path):
+    '''
     Si besoin de checks - possibilité de créer une carte avec en vert les points proches de la côte et en rouge les points éloignés de la côte
-'''
-
-def carte(file_to_map: Path):
+    '''
     if not os.path.exists(file_to_map):
         LOGGER.info("The file you want to map does not exist")
-    else:
-        df = pl.read_parquet(file_to_map)
-        gdf = gpd.GeoDataFrame(df.to_pandas(), geometry=gpd.points_from_xy(df["longitude_-_n1"], df["latitude_-_n1"]), crs="EPSG:4326").dropna(subset=["latitude_-_n1", "longitude_-_n1"])
+        return
 
-        carte = folium.Map(location=[48.95, 2.29], zoom_start=6)
+    df = pl.read_parquet(file_to_map)
+    gdf = gpd.GeoDataFrame(df.to_pandas(), geometry=gpd.points_from_xy(df["longitude_-_n1"], df["latitude_-_n1"]), crs="EPSG:4326").dropna(subset=["latitude_-_n1", "longitude_-_n1"])
 
-        marker_cluster = MarkerCluster().add_to(carte)
+    carte = folium.Map(location=[48.95, 2.29], zoom_start=6)
 
-        for _, row in gdf.iterrows():
-            color = "green" if row["is_coastal"] else "red"
+    marker_cluster = MarkerCluster().add_to(carte)
 
-            popup_text = (
-                f"ID: {row['id']}<br>"
-                f"Côtier: {row['is_coastal']}<br>"
-                f"Distance : {row['distance_to_coast']}m (Peut être plus si 20 000m)"
-            )
+    for _, row in gdf.iterrows():
+        color = "green" if row["is_coastal"] else "red"
 
-            folium.CircleMarker(
-                location=[row["latitude_-_n1"], row["longitude_-_n1"]],
-                radius=3,
-                color=color,
-                fill=True,
-                fill_color=color,
-                fill_opacity=0.7,
-                popup=popup_text,
-            ).add_to(marker_cluster)
-        carte.save('carte.html')
-        LOGGER.info('Map created')
+        popup_text = (
+            f"ID: {row['id']}<br>"
+            f"Côtier: {row['is_coastal']}<br>"
+            f"Distance : {row['distance_to_coast']}m (Peut être plus si 20 000m)"
+        )
 
+        folium.CircleMarker(
+            location=[row["latitude_-_n1"], row["longitude_-_n1"]],
+            radius=3,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.7,
+            popup=popup_text,
+        ).add_to(marker_cluster)
+    carte.save(DATADIR / 'carte_points_biolit.html')
+    LOGGER.info('Map created')
 
