@@ -1,65 +1,118 @@
-import polars as pl
 import requests
+import polars as pl
+import structlog
 
-###Test export from API
+LOGGER = structlog.get_logger()
 
-def fetch_biolit_api(per_page: int = 1000):
+# ------------------------------
+# Helper pour récupérer une clé dans meta
+# ------------------------------
+def get_meta(meta: dict, key: str):
+    """Retourne la première valeur d'une clé meta, ou None si absente"""
+    if not meta:
+        return None
+    value = meta.get(key)
+    if isinstance(value, list) and value:
+        return value[0]
+    return value
+
+
+# ------------------------------
+# FETCH API
+# ------------------------------
+def fetch_biolit_from_api(per_page=100, max_pages=5):
+    """
+    Récupère les observations depuis l'API Biolit.
+    Limite par défaut à max_pages pour éviter les 150+ pages.
+    """
+    url_base = "https://biolit.fr/wp-json/biolitapi/v1/observations"
     all_data = []
-    page = 1
-    print("Téléchargement des données depuis l'API Biolit...")
-    while True:
-        url = f"https://biolit.fr/wp-json/biolitapi/v1/observations/all?per_page={per_page}&page={page}"
-        r = requests.get(url)
-        data = r.json()
+
+    for page in range(1, max_pages + 1):
+        url = f"{url_base}?per_page={per_page}&page={page}"
+        LOGGER.info(f"Fetching page {page} from API")
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
         if not data:
             break
         all_data.extend(data)
-        page += 1
-        print(f"Page {page} téléchargée, total observations : {len(all_data)}")
 
-    if not all_data:
-        return pl.DataFrame([])
-    df = pl.DataFrame(all_data)
-    print(df.head())
-    print(df.shape)
+    LOGGER.info(f"Fetched {len(all_data)} observations total")
+    return all_data
+
+
+# ------------------------------
+# ADAPT API -> PARQUET
+# ------------------------------
+def adapt_api_to_parquet_schema(data: list) -> pl.DataFrame:
+    """
+    Transforme la structure API Biolit en DataFrame pour parquet.
+    """
+    rows = []
+
+    for item in data:
+        obs = item.get("observation", {})
+        meta = obs.get("meta", {})
+        parents = item.get("parents", {})
+        especes = item.get("especes", [])
+
+        quadra = parents.get("quadra", {})
+        abb = parents.get("abb", {})
+        quadra_meta = quadra.get("meta", {})
+        abb_meta = abb.get("meta", {})
+
+        # Gestion des espèces
+        nom_scientifique = None
+        nom_commun = None
+        nombre_mollusques = None
+
+        if especes:
+            nom_scientifique = especes[0].get("nom")
+            nombre_mollusques = especes[0].get("nombre_presents")
+
+        row = {
+            # Niveau N1 (Quadra)
+            "protocole": get_meta(meta, "jet_tax__protocole"),
+            "ID - N1": quadra.get("ID"),
+            "titre - N1": quadra.get("title"),
+            "lien - N1": get_meta(meta, "_url_sortie"),
+            "auteur - N1": None,
+            "images - N1": None,
+            "date - N1": obs.get("date"),
+            "heure-de-debut - N1": get_meta(meta, "heure-debut"),
+            "heure-de-fin - N1": get_meta(meta, "heure-fin"),
+            "latitude - N1": get_meta(meta, "latitude"),
+            "longitude - N1": get_meta(meta, "longitude"),
+            "relais-local - N1": get_meta(abb_meta, "relais-local"),
+            "nom du lieu - N1": get_meta(abb_meta, "nom-du-lieu-abb"),
+
+            # Observation
+            "ID - observation": obs.get("ID"),
+            "titre - observation": obs.get("title"),
+            "lien - observation": obs.get("link"),
+            "Nom scientifique - observation": nom_scientifique,
+            "Nom commun - observation": nom_commun,
+            "programme espèce": get_meta(meta, "jet_tax__categorie-programme"),
+            "images - observation": obs.get("images"),
+            "nombre de mollusques - observation": nombre_mollusques,
+            "validee - observation": get_meta(meta, "validee"),
+            "espece identifiable ? - observation": get_meta(meta, "espece-identifiee"),
+        }
+
+        rows.append(row)
+
+    return pl.DataFrame(rows)
+
+
+# ------------------------------
+# LOAD (Fetch + Adapt)
+# ------------------------------
+def load_biolit_from_api(per_page=100, max_pages=5) -> pl.DataFrame:
+    """
+    Récupère et transforme les données Biolit depuis l'API.
+    """
+    raw_data = fetch_biolit_from_api(per_page=per_page, max_pages=max_pages)
+    df = adapt_api_to_parquet_schema(raw_data)
     return df
 
-
-def adapt_api_to_parquet_schema(df):
-    return (
-        df.rename({
-            "id": "id",
-            "link": "lien",
-            "author": "auteur",
-            "date": "date",
-            "heure-debut": "heure-de-debut",
-            "heure-fin": "heure-de-fin",
-            "latitude": "latitude",
-            "longitude": "longitude",
-            "photos": "images",
-            "espece": "nom_scientifique",
-            "common": "nom_commun",
-        })
-        .with_columns([
-            pl.col("lien").str.split("/").list.get(-1).alias("titre"),  # dernier segment du lien
-            pl.lit("").alias("validee"),
-            pl.lit("TBD").alias("espece_identifiable_?"),
-            pl.lit("API").alias("protocole"),
-        ])
-    )
-def load_biolit_from_api() -> pl.DataFrame:
-    df_api = fetch_biolit_api()
-    if df_api.is_empty():
-        return df_api
-    print(adapt_api_to_parquet_schema(df_api).head())
-    print(adapt_api_to_parquet_schema(df_api).columns)
-    return adapt_api_to_parquet_schema(df_api)
-
-def format_observations_from_api():
-### A faire plus tard
-    return 
-
-
-if __name__ == "__main__":
-    print("Script lancé")
-    load_biolit_from_api()
