@@ -59,7 +59,6 @@ def adapt_api_to_parquet_schema(data: list) -> pl.DataFrame:
 
         quadra = parents.get("quadra", {})
         abb = parents.get("abb", {})
-        quadra_meta = quadra.get("meta", {})
         abb_meta = abb.get("meta", {})
 
         # Gestion des espèces

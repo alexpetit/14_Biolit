@@ -1,5 +1,5 @@
 
-from biolit.export_api import fetch_biolit_from_api, load_biolit_from_api, adapt_api_to_parquet_schema
+from biolit.export_api import fetch_biolit_from_api, adapt_api_to_parquet_schema
 
 # -------------------------
 # Fonctions d'inspection
