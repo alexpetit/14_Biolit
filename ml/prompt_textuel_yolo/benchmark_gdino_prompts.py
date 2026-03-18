@@ -69,7 +69,7 @@ def detecter(image, prompt, modele, processeur):
     """
     # Grounding DINO attend les labels séparés par des points
     # Ex : "crab, starfish" → "crab. starfish."
-    labels = [l.strip() for l in prompt.split(",") if l.strip()]
+    labels = [lb.strip() for lb in prompt.split(",") if lb.strip()]
     texte_formate = ". ".join(labels) + "."
 
     # Préparer les entrées du modèle
