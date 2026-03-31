@@ -1,12 +1,3 @@
-"""
-Fine-tuning YOLOv8 sur les pseudo-labels GroundingDINO.
-Lance après autodistill_label.py.
-
-Usage:
-    python autodistill_train.py
-    python autodistill_train.py --config configs/autodistill_boostrap.yaml
-"""
-
 import argparse
 import sys
 from pathlib import Path

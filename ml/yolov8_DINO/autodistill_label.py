@@ -1,12 +1,3 @@
-"""
-Pseudo-labeling GroundingDINO.
-Lance après build_dataset.py + inspect_data.py.
-
-Usage:
-    python autodistill_label.py
-    python autodistill_label.py --config configs/autodistill_boostrap.yaml
-"""
-
 import argparse
 import sys
 from pathlib import Path
