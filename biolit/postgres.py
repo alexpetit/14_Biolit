@@ -1,6 +1,9 @@
 import os
 import polars as pl
 from sqlalchemy import create_engine, text
+import pandas as pd
+from dotenv import load_dotenv
+load_dotenv()
 
 
 # -------------------------
@@ -122,3 +125,51 @@ def insert_dataframe(df: pl.DataFrame):
                 )
                 ON CONFLICT (id_observation) DO NOTHING
             """), row)
+
+def insert_enriched_dataframe(df: pd.DataFrame, engine):
+    pl_df = pl.from_pandas(df)
+    rows = pl_df.to_dicts()
+
+    with engine.begin() as conn:
+        for row in rows:
+            conn.execute(text("""
+                INSERT INTO observations_enriched (
+                    id_observation,
+                    nearest_commune,
+                    code_insee,
+                    distance_commune_m,
+                    code_postal,
+                    reg_nom,
+                    dep_nom,
+                    distance_to_coast,
+                    is_coastal
+                ) VALUES (
+                    :id_observation,
+                    :nearest_commune,
+                    :code_insee,
+                    :distance_commune_m,
+                    :code_postal,
+                    :reg_nom,
+                    :dep_nom,
+                    :distance_to_coast,
+                    :is_coastal
+                )
+                ON CONFLICT (id_observation) DO NOTHING
+            """), row)
+
+
+
+
+
+
+
+
+
+
+def load_observations_from_db(engine) -> pl.DataFrame:
+    query = """
+        SELECT *
+        FROM observations
+    """
+
+    return pl.read_database(query, engine)

@@ -3,6 +3,8 @@ import polars as pl
 import structlog
 import re
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 LOGGER = structlog.get_logger()
 
@@ -10,8 +12,9 @@ LOGGER = structlog.get_logger()
 # FETCH API
 # ------------------------------
 def fetch_biolit_from_api():
-
+    print("coucou")
     url = os.getenv("BIOLIT_API_URL")
+    print("coucou1")
 
     response = requests.get(url)
     response.raise_for_status()
