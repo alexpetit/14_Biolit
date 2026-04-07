@@ -5,35 +5,37 @@ services:
     container_name: biolit-postgres
     restart: always
     environment:
-      POSTGRES_USER: biolit
-      POSTGRES_PASSWORD: biolit
-      POSTGRES_DB: biolit
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
   pipeline:
     build:
       context: ..
-      dockerfile: infra/Dockerfile
+      dockerfile: Dockerfile
     container_name: biolit-pipeline
     depends_on:
       - postgres
     environment:
-      POSTGRES_URL: postgresql://biolit:biolit@postgres:5432/biolit
-    command: ["uv", "run", "pipelines/run.py"]
+      POSTGRES_URL: ${POSTGRES_URL}
+      BIOLIT_API_URL: ${BIOLIT_API_URL}
+    command: ["uv", "run", "python", "-m", "pipelines.run"]
 
   label-studio:
     image: heartexlabs/label-studio:1.13.1
     container_name: biolit-label-studio
     ports:
-      - "8080:8080"
+      - "8089:8080"
     environment:
       LABEL_STUDIO_BASE_DATA_DIR: /label-studio/data
       LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED: "true"
       LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /label-studio/files
-      LABEL_STUDIO_HOST: http://localhost:8080
+      LABEL_STUDIO_HOST: http://localhost:8089
       LABEL_STUDIO_INTERNAL_HOST: http://label-studio:8080
     volumes:
       - ../data/label-studio:/label-studio/data

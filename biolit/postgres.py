@@ -2,9 +2,10 @@ import os
 import polars as pl
 from sqlalchemy import create_engine, text
 import pandas as pd
+import structlog
 from dotenv import load_dotenv
+LOGGER = structlog.get_logger()
 load_dotenv()
-
 
 # -------------------------
 # Connexion DB
@@ -14,8 +15,7 @@ def get_engine():
     postgres_url = os.getenv("POSTGRES_URL")
 
     if not postgres_url:
-        raise ValueError("Missing POSTGRES_URL")
-
+        raise ValueError("Missing DATABASE_URL")
     return create_engine(postgres_url)
 
 # -------------------------

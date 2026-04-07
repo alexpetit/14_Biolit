@@ -88,7 +88,7 @@ La pipeline crée plusieurs fichier:
 ## Label Studio (annotation)
 
 ```bash
-docker compose -f infra/docker-compose.yml up
+docker compose --env-file .env -f infra/docker-compose.yml up
 ```
 
 UI : http://localhost:8080

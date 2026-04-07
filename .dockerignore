@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environnements
+.venv/
+venv/
+.env
+
+# Git
+.git
+.gitignore
+
+# Dossiers
+orchestrateur/**
+data/**

@@ -8,42 +8,52 @@ from biolit.postgres import (
     create_enriched_table,
 )
 from biolit.geoloc import geoloc_enrichie_data_biolit_db
+import structlog
+from dotenv import load_dotenv
+load_dotenv()
 
+
+LOGGER = structlog.get_logger()
+load_dotenv()
 
 def run_pipeline():
     # -------------------------
     # 1. INGESTION API
     # -------------------------
-    print("Fetching data...")
+    LOGGER.info("Fetching data...")
     data = fetch_biolit_from_api()
 
-    print("Transforming...")
+    LOGGER.info("Transforming...")
     df = adapt_api_to_dataframe(data)
 
-    print("Preparing for Postgres...")
+    LOGGER.info("Preparing for Postgres...")
     df = prepare_dataframe_for_postgres(df)
 
-    print("Creating table if not exists...")
+    LOGGER.info("Creating table if not exists...")
     create_table()
 
-    print("Loading into Postgres...")
+    LOGGER.info("Loading into Postgres...")
     insert_dataframe(df)
 
     # -------------------------
     # 2. ENRICHISSEMENT GEOLOC
     # -------------------------
-    print("Starting geolocation enrichment...")
+    LOGGER.info("Starting geolocation enrichment...")
     engine = get_engine()
 
     df_geo = geoloc_enrichie_data_biolit_db(engine)
 
-    print("Creating enriched table if not exists...")
+    LOGGER.info("Creating enriched table if not exists...")
     create_enriched_table(engine)
 
-    print("Saving enriched data into Postgres...")
+    LOGGER.info("Saving enriched data into Postgres...")
     insert_enriched_dataframe(df_geo, engine)
 
-    print("DONE ✅")
+    LOGGER.info("DONE ✅")
+
+    # -------------------------
+    # 3. INSERTION DES IMAGES DANS MINIO
+    # -------------------------
 
 
 if __name__ == "__main__":
