@@ -42,6 +42,7 @@ dependencies = [
     "autodistill>=0.1.29",
     "autodistill-grounding-dino>=0.1.4",
     "autodistill-yolov8>=0.1.4",
+    "ultralytics",
     "supervision>=0.27.0.post2",
     "scikit-learn>=1.8.0",
     "boto3>=1.42.80",
