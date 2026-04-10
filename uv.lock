@@ -64,6 +64,7 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
     { name = "transformers" },
+    { name = "ultralytics" },
 ]
 
 [package.metadata]
@@ -108,6 +109,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.11.0" },
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "transformers", specifier = "==4.41.2" },
+    { name = "ultralytics" },
 ]
 
 [[package]]
