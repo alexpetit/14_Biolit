@@ -1,5 +1,5 @@
 from biolit.export_api import fetch_biolit_from_api, adapt_api_to_dataframe
-from biolit.postgres import (
+from biolit.create_table import (
     prepare_dataframe_for_postgres,
     insert_dataframe,
     get_engine,

@@ -12,7 +12,7 @@ import folium
 from folium.plugins import MarkerCluster
 
 from biolit import DATADIR, DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
-from biolit.postgres import load_observations_from_db
+from biolit.create_table import load_observations_from_db
 
 LOGGER = structlog.get_logger()
 
