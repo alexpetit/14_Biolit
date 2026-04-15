@@ -3,13 +3,11 @@ from biolit.postgres import (
     prepare_dataframe_for_postgres,
     insert_dataframe,
     get_engine,
-    insert_enriched_dataframe,
     create_table,
-    create_enriched_table,
     load_observations_from_db_for_S3,
 )
-from biolit.geoloc import geoloc_enrichie_data_biolit_db
 from biolit.minio import _upload_photos_minio
+from biolit.label_studio import push_tasks_label_studio, delete_tasks_label_studio
 import structlog
 from dotenv import load_dotenv
 
@@ -17,6 +15,7 @@ LOGGER = structlog.get_logger()
 load_dotenv()
 
 def run_pipeline():
+
     # -------------------------
     # 1. INGESTION API
     # -------------------------
@@ -38,9 +37,10 @@ def run_pipeline():
     # -------------------------
     # 2. ENRICHISSEMENT GEOLOC
     # -------------------------
+
     LOGGER.info("Starting geolocation enrichment...")
     engine = get_engine()
-
+    """
     df_geo = geoloc_enrichie_data_biolit_db(engine)
 
     LOGGER.info("Creating enriched table if not exists...")
@@ -48,24 +48,29 @@ def run_pipeline():
 
     LOGGER.info("Saving enriched data into Postgres...")
     insert_enriched_dataframe(df_geo, engine)
-
-    LOGGER.info("DONE ✅")
-
+    LOGGER.info("Geoloc Enrichment DONE ✅")
+    """
     # -------------------------
     # 3. INSERTION DES IMAGES DANS MINIO
     # -------------------------
     LOGGER.info("Connection to minio...")
-    df_minio = load_observations_from_db_for_S3(engine)
-    _upload_photos_minio(df_minio)
-    LOGGER.info("DONE ✅")
+    df_tasks = load_observations_from_db_for_S3(engine)
+    _upload_photos_minio(df_tasks)
+    LOGGER.info("Minio DONE ✅")
 
     # -------------------------
     # 4. ENVOIE DES CROPS A LABEL STUDIO
     # -------------------------
+    LOGGER.info("Connection to Label Studio...")
+    push_tasks_label_studio("Biolit Crops", df_tasks)
+    LOGGER.info("LABEL STUDIO DONE ✅")
 
     # -------------------------
     # 5. RECUPERATION DES INFOS DEPUIS LABEL STUDIO
     # -------------------------
+    LOGGER.info("Deletion of completed tasks...")
+    delete_tasks_label_studio("Biolit Crops")
+    LOGGER.info("Tasks Deleted DONE ✅")
 
 if __name__ == "__main__":
     run_pipeline()

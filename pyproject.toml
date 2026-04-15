@@ -21,6 +21,8 @@ dependencies = [
     "folium",
     "minio>=7.2.20",
     "label-studio-sdk>=2.0.19",
+    "huggingface-hub>=1.10.1",
+    "ultralytics>=8.4.37",
 ]
 
 [tool.pytest.ini_options]

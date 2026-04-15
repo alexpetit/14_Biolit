@@ -59,6 +59,7 @@ COLUMN_MAPPING = {
     "common": "nom_commun",
     "categorie-programme": "categorie_programme",
     "programme": "programme",
+    "validee": "validee",
 }
 
 

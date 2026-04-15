@@ -43,7 +43,8 @@ def create_table():
                 nom_scientifique TEXT,
                 nom_commun TEXT,
                 categorie_programme BIGINT,
-                programme TEXT
+                programme TEXT,
+                validee TEXT
             );
         """))
 
@@ -148,7 +149,8 @@ def insert_dataframe(df: pl.DataFrame):
                     nom_scientifique,
                     nom_commun,
                     categorie_programme,
-                    programme
+                    programme,
+                    validee
                 ) VALUES (
                     :id_observation,
                     :date_observation,
@@ -166,7 +168,8 @@ def insert_dataframe(df: pl.DataFrame):
                     :nom_scientifique,
                     :nom_commun,
                     :categorie_programme,
-                    :programme
+                    :programme,
+                    :validee
                 )
                 ON CONFLICT (id_observation) DO NOTHING
             """), row)
