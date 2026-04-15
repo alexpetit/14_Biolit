@@ -272,7 +272,9 @@ def carte_points_biolit_checks_geoloc(file_to_map: Path):
         popup_text = (
             f"ID: {row['id']}<br>"
             f"Côtier: {row['is_coastal']}<br>"
-            f"Distance : {row['distance_to_coast']} m"
+            f"Distance : {row['distance_to_coast']} m<br>"
+            f"Code Postal : {row['code_postal']}<br>"
+            f"Departement : {row['dep_nom']} m<br>"
         )
 
         folium.CircleMarker(

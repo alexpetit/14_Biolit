@@ -31,5 +31,6 @@ CREATE TABLE IF NOT EXISTS observations (
     nom_commun TEXT,
     categorie_programme INT,
     programme TEXT,
+    validee TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );

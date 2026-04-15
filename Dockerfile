@@ -9,7 +9,6 @@ RUN pip install uv
 
 WORKDIR /app
 
-
 COPY pyproject.toml uv.lock ./
 
 RUN uv sync
@@ -17,5 +16,3 @@ RUN uv sync
 COPY . .
 
 ENV PYTHONPATH=/app
-
-CMD ["uv", "run", "pipelines/run.py"]

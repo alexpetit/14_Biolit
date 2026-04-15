@@ -2,9 +2,10 @@ import os
 import polars as pl
 from sqlalchemy import create_engine, text
 import pandas as pd
+import structlog
 from dotenv import load_dotenv
+LOGGER = structlog.get_logger()
 load_dotenv()
-
 
 # -------------------------
 # Connexion DB
@@ -14,8 +15,7 @@ def get_engine():
     postgres_url = os.getenv("POSTGRES_URL")
 
     if not postgres_url:
-        raise ValueError("Missing POSTGRES_URL")
-
+        raise ValueError("Missing DATABASE_URL")
     return create_engine(postgres_url)
 
 # -------------------------
@@ -43,7 +43,8 @@ def create_table():
                 nom_scientifique TEXT,
                 nom_commun TEXT,
                 categorie_programme BIGINT,
-                programme TEXT
+                programme TEXT,
+                validee TEXT
             );
         """))
 
@@ -148,7 +149,8 @@ def insert_dataframe(df: pl.DataFrame):
                     nom_scientifique,
                     nom_commun,
                     categorie_programme,
-                    programme
+                    programme,
+                    validee
                 ) VALUES (
                     :id_observation,
                     :date_observation,
@@ -166,7 +168,8 @@ def insert_dataframe(df: pl.DataFrame):
                     :nom_scientifique,
                     :nom_commun,
                     :categorie_programme,
-                    :programme
+                    :programme,
+                    :validee
                 )
                 ON CONFLICT (id_observation) DO NOTHING
             """), row)
@@ -202,19 +205,18 @@ def insert_enriched_dataframe(df: pd.DataFrame, engine):
                 ON CONFLICT (id_observation) DO NOTHING
             """), row)
 
-
-
-
-
-
-
-
-
-
 def load_observations_from_db(engine) -> pl.DataFrame:
     query = """
         SELECT *
         FROM observations
     """
 
+    return pl.read_database(query, engine)
+
+def load_observations_from_db_for_S3(engine) -> pl.DataFrame:
+    query = """
+        SELECT id_observation, photos, latitude, longitude
+        FROM observations
+        LIMIT 10
+    """
     return pl.read_database(query, engine)

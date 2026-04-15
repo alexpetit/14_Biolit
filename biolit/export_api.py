@@ -14,6 +14,7 @@ LOGGER = structlog.get_logger()
 def fetch_biolit_from_api():
 
     url = os.getenv("BIOLIT_API_URL")
+    LOGGER.info("BIOLIT_API_URL:", value=url)
 
 
     response = requests.get(url)
@@ -58,6 +59,7 @@ COLUMN_MAPPING = {
     "common": "nom_commun",
     "categorie-programme": "categorie_programme",
     "programme": "programme",
+    "validee": "validee",
 }
 
 
