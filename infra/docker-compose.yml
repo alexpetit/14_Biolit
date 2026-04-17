@@ -9,7 +9,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-
+    labels:
+      - traefik.enable=true
+      - traefik.tcp.routers.biolit-postgres.rule=HostSNI(`*`)
+      - traefik.tcp.routers.biolit-postgres.entrypoints=postgres
+      - traefik.tcp.services.biolit-postgres.loadbalancer.server.port=5432
+      - traefik.docker.network=d4g-internal
   label-studio:
     image: heartexlabs/label-studio:1.13.1
     environment:
