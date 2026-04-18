@@ -9,8 +9,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432"
+    networks:
+      - d4g-internal
 
   label-studio:
     image: heartexlabs/label-studio:1.13.1
@@ -30,7 +30,13 @@ services:
       - traefik.http.routers.biolit-labelstudio.tls=true
       - traefik.docker.network=d4g-internal
       - traefik.http.services.biolit-labelstudio.loadbalancer.server.port=8080
+    networks:
+      - d4g-internal
 
 volumes:
   postgres_data:
   labelstudio_data:
+
+networks:
+  d4g-internal:
+    external: true
