@@ -12,7 +12,21 @@ services:
     networks:
       - d4g-internal
     ports:
-      - '5433'
+      - '5432:5432'
+
+  init:
+    build:
+      context: ..
+      dockerfile: infra/ingestion/Dockerfile
+    container_name: biolit-init
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_URL: postgresql://biolit:biolit@postgres:5432/biolit
+    command: ["uv", "run", "infra/ingestion/run.py"]
+    networks:
+      - d4g-internal
+
 
   label-studio:
     image: heartexlabs/label-studio:1.13.1
@@ -34,6 +48,8 @@ services:
       - traefik.http.services.biolit-labelstudio.loadbalancer.server.port=8080
     networks:
       - d4g-internal
+
+
 
 volumes:
   postgres_data:
