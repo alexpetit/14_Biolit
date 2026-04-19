@@ -16,7 +16,7 @@ services:
 
   init:
     build:
-      context: ..
+      context: .
       dockerfile: infra/ingestion/Dockerfile
     container_name: biolit-init
     depends_on:
