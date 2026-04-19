@@ -12,7 +12,7 @@ services:
     networks:
       - d4g-internal
     ports:
-      - '5432:5432'
+      - '5432'
 
   init:
     build:
