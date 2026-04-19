@@ -3,7 +3,7 @@ name = "14_Biolit"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 
 dependencies = [
     "polars",
@@ -28,7 +28,8 @@ dependencies = [
     "shapely>=2.1.2",
     "structlog>=25.5.0",
     "tqdm>=4.67.3",
-    "transformers==4.41.2",
+    "transformers==4.38.2",
+    "tokenizers<0.19",
     "torch>=2.11.0",
     "roboflow>=1.2.16",
     "autodistill>=0.1.29",
@@ -39,6 +40,9 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "boto3>=1.42.80",
     "python-dotenv>=1.2.2",
+    "minio>=7.2.0",
+    "label-studio-sdk >=1.0.0,<2.0.0",
+    "folium >=0.15"
 ]
 
 [tool.pytest.ini_options]
