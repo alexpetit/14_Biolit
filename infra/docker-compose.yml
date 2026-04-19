@@ -11,6 +11,8 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - d4g-internal
+    ports:
+      - '5432'
 
   label-studio:
     image: heartexlabs/label-studio:1.13.1
