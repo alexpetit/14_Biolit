@@ -12,7 +12,7 @@ services:
     networks:
       - d4g-internal
     ports:
-      - '5432'
+      - '5433'
 
   label-studio:
     image: heartexlabs/label-studio:1.13.1
