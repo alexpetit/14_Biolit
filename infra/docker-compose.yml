@@ -23,6 +23,7 @@ services:
       - postgres
     environment:
       POSTGRES_URL: postgresql://biolit:biolit@postgres:5432/biolit
+      POLARS_SKIP_CPU_CHECK: "1"
     command: ["uv", "run", "infra/ingestion/run.py"]
     networks:
       - d4g-internal
