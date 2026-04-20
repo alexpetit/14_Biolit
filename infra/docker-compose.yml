@@ -15,7 +15,7 @@ services:
       - '5432'
 
   init:
-    restart: "unless-stopped"
+    restart: "no"
     build:
       context: .
       dockerfile: infra/ingestion/Dockerfile
