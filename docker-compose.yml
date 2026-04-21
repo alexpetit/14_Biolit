@@ -12,7 +12,7 @@ services:
     networks:
       - d4g-internal
     ports:
-      - '5432:54326'
+      - '54326:5432'
 
 
   label-studio:
