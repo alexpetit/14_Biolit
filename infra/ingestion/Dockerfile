@@ -26,4 +26,4 @@ RUN uv sync
 COPY . .
 
 # --- commande par défaut ---
-CMD ["uv", "run", "pipelines/run.py"]
+CMD ["python", "--version"]
