@@ -1,9 +1,10 @@
 FROM python:3.11-slim
 
 # --- dépendances système ---
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
+RUN apt-get update && apt-get install -y build-essential curl \
+    && pip install uv \
+    && apt-get remove -y build-essential \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # --- installer uv ---
@@ -22,6 +23,7 @@ COPY pyproject.toml uv.lock ./
 # --- install deps ---
 RUN uv sync
 
+RUN rm -rf /root/.cache
 # --- copier le code ensuite ---
 COPY . .
 
