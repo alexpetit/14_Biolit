@@ -12,22 +12,7 @@ services:
     networks:
       - d4g-internal
     ports:
-      - '5432'
-
-
-  init:
-    restart: "unless-stopped"
-    build:
-      dockerfile: infra/ingestion/Dockerfile
-    container_name: biolit-init
-    depends_on:
-      - postgres
-    environment:
-      POSTGRES_URL: postgresql://biolit:biolit@postgres:5432/biolit
-      POLARS_SKIP_CPU_CHECK: "1"
-    command: ["sh", "-c", "uv run infra/ingestion/run.py"]
-    networks:
-      - d4g-internal
+      - '5432:54326'
 
 
   label-studio:
