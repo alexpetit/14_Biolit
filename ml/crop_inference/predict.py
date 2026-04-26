@@ -116,9 +116,10 @@ def build_manifest(results: list, run_name: str, output_dir: str) -> list:
 
     return manifest
 
-def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tuple[pl.DataFrame, pl.DataFrame]:
+def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tuple[pl.DataFrame, pl.DataFrame, dict]:
     rows = []
-    rows_no_crops=[]
+    rows_no_crops = []
+    crops_images = {}
 
     for r in results:
         source_stem = Path(r.path).stem
@@ -156,7 +157,7 @@ def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tupl
             conf = float(box.conf)
 
             crop = img.crop((x1, y1, x2, y2)).convert("RGB")
-
+            id_crops = f"{source_stem}_{cls_name}"
             object_name = f"{run_name}/crops/{source_stem}_{cls_name}_{conf:.2f}.jpg"
 
             upload_image_s3(
@@ -166,16 +167,18 @@ def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tupl
                 object_name=object_name
             )
 
+            crops_images[id_crops] = crop
+
             rows.append({
                 "run_name": run_name,
                 "id_observation": source_stem,
-                "id_crops": f"{source_stem}_{cls_name}",
+                "id_crops": id_crops,
                 "regne": cls_name,
                 "confiance": round(conf, 4),
                 "path_s3": f"s3://{bucket}/{object_name}",
             })
 
-    return pl.DataFrame(rows), pl.DataFrame(rows_no_crops)
+    return pl.DataFrame(rows), pl.DataFrame(rows_no_crops), crops_images
 
 def print_results(model: YOLO, results: list) -> None:
     logger = logging.getLogger(_LOGGER_NAME)
@@ -232,7 +235,7 @@ def run_predict(source: str, config_path: str, run_name: str, log_level: str = "
     try:
         client = create_s3_client()
 
-        df = build_manifest_s3(
+        df_crops, df_no_crops, crops_images = build_manifest_s3(
             results,
             run_name=run_name,
             client=client,
@@ -245,9 +248,9 @@ def run_predict(source: str, config_path: str, run_name: str, log_level: str = "
     elapsed = time.perf_counter() - t0
     logger.info(
         "Run terminé | images=%d | crops=%d | durée=%.2fs",
-        len(results), len(df), elapsed,
+        len(results), len(df_crops), elapsed,
     )
-    return df
+    return df_crops, df_no_crops, crops_images
 
 def download_all_images(df, tmp_dir: str):
     tmp_dir = Path(tmp_dir)
@@ -271,15 +274,15 @@ def download_all_images(df, tmp_dir: str):
     return paths
 
 
-def flow_ml_crops(df: pl.DataFrame, config: Path, run_name: str):
+def flow_ml_crops(df: pl.DataFrame, config: Path, run_name: str) -> tuple[pl.DataFrame, pl.DataFrame, dict]:
     with tempfile.TemporaryDirectory() as tmp_dir:
         download_all_images(df, tmp_dir)
-        df_crops, df_no_crops = run_predict(
+        df_crops, df_no_crops, crops_images = run_predict(
             source=tmp_dir,
             config_path=config,
             run_name=run_name
         )
-    return df_crops, df_no_crops
+    return df_crops, df_no_crops, crops_images
 
 def main():
     parser = argparse.ArgumentParser(description="Inférence YOLOv8 Biolit — crop + manifeste")

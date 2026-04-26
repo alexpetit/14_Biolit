@@ -44,6 +44,7 @@ dependencies = [
     "minio>=7.2.20",
     "label-studio-sdk>=2.0.13",
     "boto3>=1.42.89",
+    "open-clip-torch>=2.24.0",
 ]
 
 [tool.pytest.ini_options]

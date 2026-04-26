@@ -63,6 +63,19 @@ def create_s3_client():
         endpoint_url=ENDPOINT_URL
     )
 
+def upload_parquet_s3(client, df, bucket_name: str, object_name: str):
+    import polars as pl
+    buffer = BytesIO()
+    df.write_parquet(buffer)
+    buffer.seek(0)
+    client.put_object(
+        Body=buffer,
+        Bucket=bucket_name,
+        Key=object_name,
+        ContentLength=buffer.getbuffer().nbytes,
+    )
+    LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{object_name}")
+
 def upload_image_s3(client, pil_img: Image.Image, bucket_name: str, object_name: str):
     buffer = BytesIO()
     pil_img.save(buffer, format="JPEG")

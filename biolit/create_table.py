@@ -280,3 +280,48 @@ def load_observations_from_crops_for_Label_Studio(engine) -> pl.DataFrame:
         FROM ml_crops
     """
     return pl.read_database(query, engine)
+
+def create_taxonomy_table(engine):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ml_taxonomy (
+                id_crops        TEXT PRIMARY KEY,
+                run_name        TEXT,
+                id_observation  TEXT,
+                regne           TEXT,
+                confiance       DOUBLE PRECISION,
+                path_s3         TEXT,
+                best_level      TEXT,
+                best_label      TEXT,
+                best_score      DOUBLE PRECISION,
+                phylum          TEXT,
+                classe          TEXT,
+                ordre           TEXT,
+                famille         TEXT,
+                species_name    TEXT
+            );
+        """))
+
+def insert_taxonomy_predictions(df: pl.DataFrame, engine) -> None:
+    rows = df.to_dicts()
+    with engine.begin() as conn:
+        for row in rows:
+            conn.execute(text("""
+                INSERT INTO ml_taxonomy (
+                    id_crops, run_name, id_observation,
+                    regne, confiance, path_s3,
+                    best_level, best_label, best_score,
+                    phylum, classe, ordre, famille, species_name
+                ) VALUES (
+                    :id_crops, :run_name, :id_observation,
+                    :regne_yolo, :confiance_yolo, :path_s3,
+                    :best_level, :best_label, :best_score,
+                    :phylum, :classe, :ordre, :famille, :species_name
+                )
+                ON CONFLICT (id_crops) DO UPDATE SET
+                    run_name     = EXCLUDED.run_name,
+                    best_level   = EXCLUDED.best_level,
+                    best_label   = EXCLUDED.best_label,
+                    best_score   = EXCLUDED.best_score
+            """), row)
+    LOGGER.info("ml_taxonomy: %d lignes insérées", len(rows))

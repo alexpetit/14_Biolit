@@ -16,8 +16,11 @@ from biolit.flow_gatekeeper import(
 )
 from biolit.label_studio import (
     push_tasks_label_studio_no_crops,
+    push_tasks_label_studio_crops,
 )
+from biolit.s3 import create_s3_client, upload_parquet_s3
 from ml.crop_inference.predict import flow_ml_crops
+from ml.classification.pipeline_classification import flow_ml_classification
 import datetime
 import structlog
 import polars as pl
@@ -81,7 +84,7 @@ def run_pipeline():
 
     LOGGER.info("Lancement du Flow de ML Crop")
     config_name="ml/crop_inference/config.yaml"
-    df_crops, df_no_crops = flow_ml_crops(df_ml_to_process, config_name, dossier_inference)
+    df_crops, df_no_crops, crops_images = flow_ml_crops(df_ml_to_process, config_name, dossier_inference)
     LOGGER.info("Cropping des images réalisées")
     LOGGER.info("Crops uploadés sur S3")
 
@@ -93,6 +96,18 @@ def run_pipeline():
     # -------------------------
     # 5. PASSAGE ML TAXONOMIE
     # -------------------------
+    if len(crops_images) > 0:
+        LOGGER.info("Lancement du Flow de Classification Taxonomique")
+        df_taxonomy = flow_ml_classification(crops_images, df_crops)
+
+        s3_client = create_s3_client()
+        parquet_key = f"{dossier_inference}/taxonomy/predictions.parquet"
+        upload_parquet_s3(s3_client, df_taxonomy, "biolit-uploads", parquet_key)
+
+        push_tasks_label_studio_crops("Biolit Crops", df_taxonomy)
+        LOGGER.info("Classification taxonomique DONE ✅")
+    else:
+        LOGGER.info("Aucun crop à classifier → skip taxonomie ✅")
 
     # -------------------------
     # 6. ENVOIE DES IMAGES A LABEL STUDIO
