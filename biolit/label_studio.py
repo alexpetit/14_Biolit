@@ -1,6 +1,7 @@
 import os
 import polars as pl
 from dotenv import load_dotenv
+import json
 import structlog
 from label_studio_sdk import LabelStudio
 
@@ -143,7 +144,6 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
     )
 
     if project_id is None:
-        LOGGER.warning(f"Projet {project_title} introuvable")
         return pl.DataFrame()
 
     # -------------------------
@@ -157,6 +157,41 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
 
         annotation = task.annotations[0] if task.annotations else None
 
+        labels = []
+        annotator = None
+        annotated_at = None
+        cancelled = False
+
+        if annotation and isinstance(annotation, dict):
+
+            # -------------------------
+            # Labels
+            # -------------------------
+            results = annotation.get("result", [])
+
+            if isinstance(results, list):
+                for r in results:
+                    if r.get("type") == "choices":
+                        labels.extend(
+                            r.get("value", {}).get("choices", [])
+                        )
+
+            # -------------------------
+            # Annotateur
+            # -------------------------
+            created_username = annotation.get("created_username")
+
+            if created_username:
+                annotator = created_username.split(",")[0].strip()
+            else:
+                annotator = annotation.get("completed_by")
+
+            # -------------------------
+            # Metadata annotation
+            # -------------------------
+            annotated_at = annotation.get("created_at")
+            cancelled = annotation.get("was_cancelled", False)
+
         rows.append({
             # -------------------------
             # Identifiants
@@ -166,17 +201,19 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
             "image": task.data.get("image"),
 
             # -------------------------
-            # Etats Label Studio
+            # Etats tâche
             # -------------------------
-            "completed": getattr(task, "is_labeled", None),
-            "cancelled": bool(getattr(task, "cancelled", False)),
-            "has_annotations": bool(task.annotations),
+            "task_created_date": getattr(task, "created_at", None),
+            # -------------------------
+            # Annotation
+            # -------------------------
+            "annotator": annotator,
+            "annotated_at": annotated_at,
+            "labels": labels,
 
-            # -------------------------
-            # Annotation (si existe)
-            # -------------------------
-            "annotated_by": getattr(annotation, "completed_by", None) if annotation else None,
-            "annotated_at": getattr(annotation, "created_at", None) if annotation else None,
+            "has_annotations": bool(task.annotations),
+            "total_annotations_task": getattr(task, "total_annotations", None),
+            "cancelled": cancelled,
 
             # -------------------------
             # Predictions (ML)
@@ -186,9 +223,5 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
 
     df = pl.DataFrame(rows)
 
-    LOGGER.info(
-        "Extraction brute Label Studio terminée",
-        nb_tasks=len(df)
-    )
-
     return df
+
