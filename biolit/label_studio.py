@@ -123,9 +123,9 @@ def delete_tasks_label_studio(project_title: str):
         client.tasks.delete(task_id)
     LOGGER.info(f"{len(task_ids)} tasks deleted from project {project.id}")
 
-def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
+def extract_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
     """
-    Extraction brute des tâches Label Studio (aucun filtrage métier).
+    Extraction brute des tâches Label Studio (aucun filtrage métier) Projet Crops.
     """
 
     api_key = os.getenv("LABEL_STUDIO_API_KEY_DATAFORGOOD")
@@ -154,13 +154,14 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
     rows = []
 
     for task in tasks:
-
         annotation = task.annotations[0] if task.annotations else None
 
-        labels = []
         annotator = None
         annotated_at = None
-        cancelled = False
+        decision = None
+        correction_mode = None
+        espece_corrigee = None
+        commentaire = None
 
         if annotation and isinstance(annotation, dict):
 
@@ -168,14 +169,28 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
             # Labels
             # -------------------------
             results = annotation.get("result", [])
+            for r in results:
+                from_name = r.get("from_name")
+                value = r.get("value", {})
 
-            if isinstance(results, list):
-                for r in results:
-                    if r.get("type") == "choices":
-                        labels.extend(
-                            r.get("value", {}).get("choices", [])
-                        )
+                if r.get("type") == "choices":
+                    choice = value.get("choices", [None])[0]
 
+                    if from_name == "decision":
+                        decision = choice
+
+                    elif from_name == "correction_mode":
+                        correction_mode = choice
+
+                    elif from_name in ["alternative_rapide", "species"]:
+                        if espece_corrigee is None: 
+                            espece_corrigee = choice
+
+                elif r.get("type") == "textarea":
+                    text = value.get("text", [None])[0]
+
+                    if from_name == "commentaire":
+                        commentaire = text
             # -------------------------
             # Annotateur
             # -------------------------
@@ -191,6 +206,8 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
             # -------------------------
             annotated_at = annotation.get("created_at")
             cancelled = annotation.get("was_cancelled", False)
+            
+    
 
         rows.append({
             # -------------------------
@@ -199,6 +216,7 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
             "task_id": task.id,
             "id_observation": task.data.get("id_observation"),
             "image": task.data.get("image"),
+            "espece_pred": task.data.get('espece_pred'),
 
             # -------------------------
             # Etats tâche
@@ -209,19 +227,11 @@ def extract_no_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
             # -------------------------
             "annotator": annotator,
             "annotated_at": annotated_at,
-            "labels": labels,
-
-            "has_annotations": bool(task.annotations),
-            "total_annotations_task": getattr(task, "total_annotations", None),
-            "cancelled": cancelled,
-
-            # -------------------------
-            # Predictions (ML)
-            # -------------------------
-            "predictions": getattr(task, "predictions", None),
+            "decision": decision,
+            "commentaire":commentaire,
+            "correction_mode":correction_mode,
+            "espece_corigée" :espece_corrigee,
         })
-
-    df = pl.DataFrame(rows)
+    df=pl.DataFrame(rows)
 
     return df
-
