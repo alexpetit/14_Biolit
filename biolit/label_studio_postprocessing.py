@@ -110,9 +110,9 @@ def process_no_crop_annotations( df: pl.DataFrame, run_name: str, engine ):
                     "crop_id" : row["crop_id"],
                     "id_observation": row["id_observation"],
                     "label": row["label"],
-                    "validation": None,
+                    "validation": False,
                     "identifiable": False,
-                    "non_espece" : None,
+                    "non_espece" : False,
                     "source": "labelstudio_no_crop",
                     "annotateur" :row["annotator"]
                 })
@@ -190,3 +190,110 @@ def process_no_crop_annotations( df: pl.DataFrame, run_name: str, engine ):
         )
 
         return df_ml, df_bd_final
+    
+
+
+def process_crop_annotations( df: pl.DataFrame,run_name: str,engine):
+        """
+        Traitement des annotations du projet Label Studio CROPS.
+
+        Objectif :
+        - filtrer les annotations déjà traitées
+        - préparer les données pour insertion
+        dans Bd_finale
+        """
+
+        LOGGER.info("Starting process_crop_annotations")
+
+        # -------------------------
+        # Extraction datetime depuis run_name
+        # -------------------------
+        run_time = datetime.datetime.strptime(
+            run_name.replace("run_", ""),
+            "%Y%m%d_%H%M%S"
+        ).replace(tzinfo=datetime.timezone.utc)
+
+        # -------------------------
+        # Conversion datetime
+        # -------------------------
+        df = df.with_columns(
+            pl.col("annotated_at").str.to_datetime(
+                format="%Y-%m-%dT%H:%M:%S%.fZ",
+                time_zone="UTC"
+            )
+        )
+
+        # -------------------------
+        # Filtrage temporel
+        # -------------------------
+        data_filtered = df.filter(
+            pl.col("task_created_date") < run_time
+        )
+
+        # -------------------------
+        # Filtrage déjà traités
+        # -------------------------
+        data_process = filter_processed_crop_annotations(
+            data_filtered,
+            engine
+        )
+
+        LOGGER.info(
+            f"Nombre annotations crop à traiter : {len(data_process)}"
+        )
+
+        rows_bd = []
+
+        # -------------------------
+        # Préparation DB finale
+        # -------------------------
+        for row in data_process.iter_rows(named=True):
+
+            # =========================
+            # Prediction correcte
+            # =========================
+            if row["decision"] == "Prédiction correcte":
+
+                non_espece = row["espece_pred"]
+
+                validation = True
+
+            # =========================
+            # Espèce corrigée
+            # =========================
+            elif row["decision"] == "Corriger l'espèce":
+
+                non_espece = row["espece_corigée"]
+
+                validation = False
+
+            # =========================
+            # Cas fallback
+            # =========================
+            else:
+
+                non_espece = None
+                validation = None
+
+            rows_bd.append({
+
+                "id_observation": row["id_observation"],
+
+                "non_espece": non_espece,
+
+                "validation": validation,
+
+                "identifiable": True,
+
+                "annotateur": row["annotator"],
+
+                "source": "labelstudio_crop"
+            })
+
+        df_bd_final = pl.DataFrame(rows_bd)
+
+        LOGGER.info(
+            f"Observations prêtes pour DB finale : {len(df_bd_final)}"
+        )
+
+        return df_bd_final

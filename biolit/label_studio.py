@@ -215,7 +215,6 @@ def extract_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
             # -------------------------
             "task_id": task.id,
             "id_observation": task.data.get("id_observation"),
-            "image": task.data.get("image"),
             "espece_pred": task.data.get('espece_pred'),
 
             # -------------------------
@@ -235,11 +234,6 @@ def extract_crop_data_from_label_studio(project_title: str) -> pl.DataFrame:
     df=pl.DataFrame(rows)
 
     return df
-
-
-import os
-import polars as pl
-from label_studio_sdk import LabelStudio
 
 def extract_no_crops_data_from_label_studio(project_title: str) -> pl.DataFrame:
     """

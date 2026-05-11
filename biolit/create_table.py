@@ -375,7 +375,7 @@ def create_Bd_finale_table(engine):
             CREATE TABLE IF NOT EXISTS Bd_finale (
                 id_observation BIGINT PRIMARY KEY,
                 non_espece TEXT,
-                validee  BOOLEAN,
+                validation  BOOLEAN,
                 identifiable BOOLEAN,
                 annotateur  TEXT,
                 source  TEXT
@@ -403,3 +403,128 @@ def create_taxonomy_queue_table(engine):
                 annotated_at TIMESTAMP
             );
         """))
+
+def insert_bd_finale_dataframe( df, engine ):
+        """
+        Insert les observations finales dans Bd_finale.
+        """
+
+        if df.is_empty():
+            LOGGER.info("Aucune donnée à insérer dans Bd_finale")
+            return
+
+        rows = df.to_dicts()
+
+        query = text("""
+            INSERT INTO Bd_finale (
+                id_observation,
+                non_espece,
+                validation,
+                identifiable,
+                annotateur,
+                source
+            )
+            VALUES (
+                :id_observation,
+                :non_espece,
+                :validation,
+                :identifiable,
+                :annotateur,
+                :source
+            )
+            ON CONFLICT (id_observation)
+            DO NOTHING
+        """)
+
+        with engine.begin() as conn:
+            conn.execute(query, rows)
+
+        LOGGER.info(
+            "Insertion Bd_finale terminée",
+            rows_inserted=len(rows)
+        )
+
+
+def insert_taxonomy_queue_dataframe( df,engine ):
+        """
+        Insert les crops manuels à envoyer
+        vers ML taxonomy.
+        """
+
+        if df.is_empty():
+            LOGGER.info("Aucune donnée à insérer dans taxonomy_queue")
+            return
+
+        rows = df.to_dicts()
+
+        query = text("""
+            INSERT INTO taxonomy_queue (
+                crop_id,
+                id_observation,
+                task_created_date,
+                crop_index,
+                x,
+                y,
+                width,
+                height,
+                label,
+                original_width,
+                original_height,
+                annotator,
+                annotated_at
+            )
+            VALUES (
+                :crop_id,
+                :id_observation,
+                :task_created_date,
+                :crop_index,
+                :x,
+                :y,
+                :width,
+                :height,
+                :label,
+                :original_width,
+                :original_height,
+                :annotator,
+                :annotated_at
+            )
+            ON CONFLICT (crop_id)
+            DO NOTHING
+        """)
+
+        with engine.begin() as conn:
+            conn.execute(query, rows)
+
+        LOGGER.info(
+            "Insertion taxonomy_queue terminée",
+            rows_inserted=len(rows)
+        )
+        
+import polars as pl
+
+
+def prepare_bd_finale_dataframe( df: pl.DataFrame ) -> pl.DataFrame:
+        """
+        Prépare le dataframe avant insertion
+        dans Bd_finale.
+        """
+
+        return (
+            df
+            .select([
+                "id_observation",
+                "non_espece",
+                "validation",
+                "identifiable",
+                "annotateur",
+                "source"
+            ])
+            .with_columns([
+                pl.col("id_observation").cast(pl.Int64),
+                pl.col("non_espece").cast(pl.Utf8),
+                pl.col("validation").cast(pl.Boolean),
+                pl.col("identifiable").cast(pl.Boolean),
+                pl.col("annotateur").cast(pl.Utf8),
+                pl.col("source").cast(pl.Utf8),
+            ])
+        )
