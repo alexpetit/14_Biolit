@@ -368,3 +368,38 @@ def get_observation_image_path(engine,
     return { 
             "bucket": bucket_name,
             "rest": rest }
+    
+def create_Bd_finale_table(engine):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS Bd_finale (
+                id_observation BIGINT PRIMARY KEY,
+                non_espece TEXT,
+                validee  BOOLEAN,
+                identifiable BOOLEAN,
+                annotateur  TEXT,
+                source  TEXT
+            );
+        """))
+
+def create_taxonomy_queue_table(engine):
+
+    with engine.begin() as conn:
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS taxonomy_queue (
+                crop_id TEXT PRIMARY KEY,
+                id_observation BIGINT NOT NULL,
+                task_created_date TIMESTAMP,
+                crop_index INTEGER,
+                x FLOAT,
+                y FLOAT,
+                width FLOAT,
+                height FLOAT,
+                label TEXT,
+                original_width INTEGER,
+                original_height INTEGER,
+                annotator TEXT,
+                annotated_at TIMESTAMP
+            );
+        """))

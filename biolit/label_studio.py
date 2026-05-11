@@ -315,9 +315,9 @@ def extract_no_crops_data_from_label_studio(project_title: str) -> pl.DataFrame:
         # -------------------------
         for idx, crop in enumerate(crops):
             rows.append({
-                "task_id": task.id,
+                # "task_id": task.id,
+                "crop_id" : f"{task.data.get("id_observation")}_{idx}",
                 "id_observation": task.data.get("id_observation"),
-                "image": task.data.get("image"),
                  # -------------------------
                 # Etats tâche
                 # -------------------------
@@ -337,7 +337,7 @@ def extract_no_crops_data_from_label_studio(project_title: str) -> pl.DataFrame:
                 # annotation
                 "annotator": annotator,
                 "annotated_at": annotated_at,
-                "commentaire": commentaire,
+                # "commentaire": commentaire,
             })
 
     df = pl.DataFrame(rows)
