@@ -12,10 +12,12 @@ load_dotenv()
 # -------------------------
 
 def get_engine():
-    postgres_url = os.getenv("POSTGRES_URL")
+    # POSTGRES_URL : déploiement local / .env
+    # POSTGRESQL_ADDON_URI : fourni automatiquement par l'add-on PostgreSQL Clever Cloud
+    postgres_url = os.getenv("POSTGRES_URL") or os.getenv("POSTGRESQL_ADDON_URI")
 
     if not postgres_url:
-        raise ValueError("Missing DATABASE_URL")
+        raise ValueError("Missing POSTGRES_URL / POSTGRESQL_ADDON_URI")
     return create_engine(postgres_url)
 
 # -------------------------

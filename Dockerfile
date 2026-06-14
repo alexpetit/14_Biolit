@@ -19,3 +19,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync
 
 COPY . .
+
+ENV PYTHONPATH=/app
+
+# Exécution locale (`docker run`). Sur Clever Cloud (Task), la commande est
+# pilotée par la variable d'environnement CC_RUN_COMMAND et remplace ce CMD.
+CMD ["uv", "run", "python", "-m", "pipelines.run"]
