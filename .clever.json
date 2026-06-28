@@ -1,0 +1,12 @@
+{
+  "apps": [
+    {
+      "app_id": "app_a9ba8ca0-1212-42ee-9dcf-1a17158fae08",
+      "org_id": "user_467d4d84-7335-4257-8a20-00d7c0c7e208",
+      "deploy_url": "https://push-n3-par-clevercloud-customers.services.clever-cloud.com/app_a9ba8ca0-1212-42ee-9dcf-1a17158fae08.git",
+      "git_ssh_url": "git+ssh://git@push-n3-par-clevercloud-customers.services.clever-cloud.com/app_a9ba8ca0-1212-42ee-9dcf-1a17158fae08.git",
+      "name": "biolit-ingestion",
+      "alias": "biolit-ingestion"
+    }
+  ]
+}
