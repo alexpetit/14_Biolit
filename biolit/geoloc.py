@@ -62,7 +62,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
                 r.raise_for_status()
                 file_path = tmpdir / "geometry_communes.json"
                 with open(file_path, "wb") as f:
-                    for chunk in r:
+                    for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
             geometry_communes = (
