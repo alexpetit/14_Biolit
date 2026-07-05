@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 import tempfile
 import zipfile
+import os
 
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
@@ -17,7 +18,6 @@ from biolit.s3 import (
     _check_file_existence_s3,
     _read_file_s3
 )
-import os
 
 LOGGER = structlog.get_logger()
 
@@ -55,27 +55,30 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
     url = DATA_GOUV_CONTOUR_COMMUNES_URL
 
     if not _check_file_existence_s3(client, bucket_name, key):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            LOGGER.info("download_start", url=url)
+        # Utiliser un dossier temporaire persistant
+        tmpdir = Path(tempfile.gettempdir()) / "geoloc"
+        tmpdir.mkdir(parents=True, exist_ok=True)
 
-            with requests.get(url, stream=True) as r:
-                r.raise_for_status()
-                file_path = tmpdir / "geometry_communes.json"
-                with open(file_path, "wb") as f:
-                    for chunk in r:
-                        if chunk:
-                            f.write(chunk)
-            geometry_communes = (
-                gpd.read_file(file_path, layer="a_com2022")
-                .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
-            )
+        LOGGER.info("download_start", url=url)
 
-        # Enregistrement sur Cellar avec fichier temporaire
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            file_path = tmpdir / "geometry_communes.json"
+            with open(file_path, "wb") as f:
+                for chunk in r:
+                    if chunk:
+                        f.write(chunk)
+
+        geometry_communes = (
+            gpd.read_file(file_path, layer="a_com2022")
+            .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
+        )
+
+        # Enregistrement sur Cellar avec fichier physique
         parquet_path = tmpdir / "geometry_communes.parquet"
         geometry_communes.to_parquet(parquet_path)
 
-        # Upload avec upload_file pour éviter les problèmes de ContentLength
+        # Upload avec upload_file
         client.upload_file(
             str(parquet_path),
             bucket_name,
