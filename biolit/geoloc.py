@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 import zipfile
 
-from biolit import DATA_GOUV_INFO_COMMUNES_URL, WORLD_COAST_LINES_URL
+from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
 from biolit.s3 import (
     create_s3_client,
@@ -48,60 +48,46 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 
     return df.to_pandas()
 
-def get_geometry_communes():
-    url = "https://www.data.gouv.fr/api/1/datasets/r/00c0c560-3ad1-4a62-9a29-c34c98c3701e"
-    tmpdir = Path(tempfile.gettempdir()) / "geoloc"
-    tmpdir.mkdir(parents=True, exist_ok=True)  # Crée le dossier si inexistant
+def get_geometry_communes() -> gpd.GeoDataFrame:
+    client = create_s3_client()
+    key = "geoloc/data_gouv/geometry_communes.parquet"
+    bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
+    url = DATA_GOUV_CONTOUR_COMMUNES_URL
 
-    file_path = tmpdir / "geometry_communes.json"
+    if not _check_file_existence_s3(client, bucket_name, key):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            LOGGER.info("download_start", url=url)
 
-    # 1. Téléchargement avec vérifications strictes
-    try:
-        response = requests.get(url, stream=True, timeout=60)
-        response.raise_for_status()  # Vérifie les erreurs HTTP
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                file_path = tmpdir / "geometry_communes.json"
+                with open(file_path, "wb") as f:
+                    for chunk in r:
+                        if chunk:
+                            f.write(chunk)
+            geometry_communes = (
+                gpd.read_file(file_path, layer="a_com2022")
+                .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
+            )
 
-        # Écriture du fichier avec vérification de taille
-        with open(file_path, "wb") as f:
-            total_size = 0
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    total_size += len(chunk)
-
-        # 2. Vérification CRITIQUE : fichier non vide
-        if total_size == 0:
-            file_path.unlink(missing_ok=True)  # Supprime le fichier vide
-            raise ValueError(f"Fichier vide téléchargé depuis {url} (taille: {total_size})")
-
-        print(f"✅ Fichier téléchargé: {file_path} ({total_size} octets)")
-
-        # 3. Lecture du GeoJSON avec geopandas et renommage des colonnes
-        gdf = gpd.read_file(file_path, layer="a_com2022").rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
-
-        # 4. Conversion en parquet en mémoire
+        # Enregistrement sur Cellar
         buffer = BytesIO()
-        gdf.to_parquet(buffer)
+        geometry_communes.to_parquet(buffer)
         buffer.seek(0)
-
-        # 5. Upload vers Cellar (S3 Clever Cloud) avec put_object
-        client = create_s3_client()
-        bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
         client.put_object(
             Body=buffer,
             Bucket=bucket_name,
-            Key="geoloc/data_gouv/geometry_communes.parquet",
+            Key=key,
             ContentLength=buffer.getbuffer().nbytes,
         )
-        print("✅ Fichier uploadé vers Cellar")
+        LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
-        # 6. Retourne le GeoDataFrame
-        return gdf
+    data = _read_file_s3(client, bucket_name, key)
+    gdf = gpd.read_parquet(io.BytesIO(data))
 
-    except Exception as e:
-        print(f"❌ ERREUR dans get_geometry_communes: {str(e)}")
-        if file_path.exists():
-            print(f"   Fichier partiel: {file_path.stat().st_size} octets")
-        raise
+    LOGGER.info("geometry_communes_loaded", count=len(gdf))
+    return gdf
 
 def get_info_communes() -> pd.DataFrame:
     client = create_s3_client()
