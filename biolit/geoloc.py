@@ -52,34 +52,69 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
     """
     Upload un fichier vers Cellar en utilisant un client boto3 dédié
-    avec ContentLength explicite pour éviter les erreurs
+    avec ContentLength explicite et DEBUG PRINTS
     """
     # Récupérer les credentials Cellar
     cellar_host = os.getenv("CELLAR_ADDON_HOST")
     cellar_key_id = os.getenv("CELLAR_ADDON_KEY_ID")
     cellar_key_secret = os.getenv("CELLAR_ADDON_KEY_SECRET")
 
+    print("DEBUG: Checking Cellar credentials...")
+    print(f"DEBUG: CELLAR_ADDON_HOST present: {bool(cellar_host)}")
+    print(f"DEBUG: CELLAR_ADDON_KEY_ID present: {bool(cellar_key_id)}")
+    print(f"DEBUG: CELLAR_ADDON_KEY_SECRET present: {bool(cellar_key_secret)}")
+
     if not all([cellar_host, cellar_key_id, cellar_key_secret]):
-        raise ValueError("Cellar credentials not found in environment variables")
+        error_msg = "Cellar credentials not found in environment variables"
+        print(f"DEBUG: ERROR - {error_msg}")
+        raise ValueError(error_msg)
+
+    print(f"DEBUG: Creating Cellar S3 client with endpoint: https://{cellar_host}")
 
     # Créer un client boto3 dédié à Cellar
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=cellar_key_id,
-        aws_secret_access_key=cellar_key_secret,
-        endpoint_url=f"https://{cellar_host}",
-        region_name="fr-par"
-    )
+    try:
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=cellar_key_id,
+            aws_secret_access_key=cellar_key_secret,
+            endpoint_url=f"https://{cellar_host}",
+            region_name="fr-par"
+        )
+        print("DEBUG: Cellar S3 client created successfully")
+    except Exception as e:
+        print(f"DEBUG: ERROR creating S3 client - {str(e)}")
+        raise
+
+    # Vérifier que le fichier existe et obtenir sa taille
+    if not file_path.exists():
+        error_msg = f"File not found: {file_path}"
+        print(f"DEBUG: ERROR - {error_msg}")
+        raise FileNotFoundError(error_msg)
+
+    file_size = os.path.getsize(file_path)
+    print(f"DEBUG: File to upload: {file_path} (size: {file_size} bytes)")
 
     # Upload avec ContentLength explicite
-    file_size = os.path.getsize(file_path)
-    with open(file_path, "rb") as f:
-        s3_client.put_object(
-            Body=f,
-            Bucket=bucket_name,
-            Key=key,
-            ContentLength=file_size
-        )
+    try:
+        print(f"DEBUG: Starting upload to Cellar - bucket: {bucket_name}, key: {key}")
+
+        with open(file_path, "rb") as f:
+            response = s3_client.put_object(
+                Body=f,
+                Bucket=bucket_name,
+                Key=key,
+                ContentLength=file_size
+            )
+
+        print(f"DEBUG: Upload completed! Response: {response.get('ResponseMetadata', {}).get('HTTPStatusCode')}")
+
+    except Exception as e:
+        print(f"DEBUG: ERROR during upload - {str(e)}")
+        print(f"DEBUG: Error type: {type(e).__name__}")
+        import traceback
+        print("DEBUG: Full traceback:")
+        traceback.print_exc()
+        raise
 
 def get_geometry_communes() -> gpd.GeoDataFrame:
     client = create_s3_client()
@@ -87,13 +122,17 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
     bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
     url = DATA_GOUV_CONTOUR_COMMUNES_URL
 
+    print(f"DEBUG: Checking if {key} exists in bucket {bucket_name}...")
+
     if not _check_file_existence_s3(client, bucket_name, key):
+        print(f"DEBUG: File not found in S3, downloading from {url}")
+
         # Utiliser un dossier temporaire persistant
         tmpdir = Path(tempfile.gettempdir()) / "geoloc"
         tmpdir.mkdir(parents=True, exist_ok=True)
+        print(f"DEBUG: Created temp directory: {tmpdir}")
 
-        LOGGER.info("download_start", url=url)
-
+        print("DEBUG: Downloading GeoJSON file...")
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
             file_path = tmpdir / "geometry_communes.json"
@@ -102,19 +141,30 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
                     if chunk:
                         f.write(chunk)
 
+        print(f"DEBUG: GeoJSON downloaded to {file_path} ({os.path.getsize(file_path)} bytes)")
+
+        print("DEBUG: Reading GeoJSON with geopandas...")
         geometry_communes = (
             gpd.read_file(file_path, layer="a_com2022")
             .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
         )
+        print(f"DEBUG: GeoJSON processed - {len(geometry_communes)} features")
 
         # Enregistrement sur Cellar
         parquet_path = tmpdir / "geometry_communes.parquet"
+        print("DEBUG: Converting to Parquet...")
         geometry_communes.to_parquet(parquet_path)
+        print(f"DEBUG: Parquet created: {parquet_path} ({os.path.getsize(parquet_path)} bytes)")
 
         # Upload direct avec gestion explicite du ContentLength
+        print("DEBUG: Uploading to Cellar...")
         upload_to_cellar_direct(parquet_path, bucket_name, key)
-        LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
+        print(f"DEBUG: Parquet uploaded to Cellar: s3://{bucket_name}/{key}")
 
+    else:
+        print("DEBUG: File already exists in S3, skipping download and upload")
+
+    print("DEBUG: Reading file from S3...")
     data = _read_file_s3(client, bucket_name, key)
     gdf = gpd.read_parquet(io.BytesIO(data))
 
