@@ -53,27 +53,41 @@ def test_permissions(bucket_name):
         LOGGER.info(f"❌ DeleteObject: {e.response['Error']['Code']}")
 
 def create_s3_client():
-    # Priorité à Cellar (add-on Clever Cloud) pour éviter les conflits avec AWS/MinIO
-    #   1. CELLAR_ADDON_* (injecté automatiquement par l'add-on Cellar Clever Cloud)
-    #   2. AWS_* majuscules (convention standard AWS)
-    #   3. aws_* minuscules (convention historique du code)
+    # Priorité absolue à Cellar (add-on Clever Cloud)
+    # Cellar injecte ces variables automatiquement quand l'add-on est lié
+    CELLAR_HOST = os.getenv("CELLAR_ADDON_HOST")  # Ex: cellar-c2.services.clever-cloud.com
+    CELLAR_KEY_ID = os.getenv("CELLAR_ADDON_KEY_ID")
+    CELLAR_KEY_SECRET = os.getenv("CELLAR_ADDON_KEY_SECRET")
+
+    # Si Cellar est configuré, on l'utilise en priorité
+    if CELLAR_HOST and CELLAR_KEY_ID and CELLAR_KEY_SECRET:
+        # Cellar nécessite l'URL complète avec https://
+        endpoint_url = f"https://{CELLAR_HOST}"
+        return boto3.client(
+            "s3",
+            aws_access_key_id=CELLAR_KEY_ID,
+            aws_secret_access_key=CELLAR_KEY_SECRET,
+            endpoint_url=endpoint_url,
+            # Configuration spécifique pour Cellar/Clever Cloud
+            region_name="fr-par",  # Région par défaut pour Clever Cloud
+            # Désactive la vérification SSL si nécessaire (pour les endpoints locaux)
+            # verify=False,  # À décommenter si SSL pose problème
+        )
+
+    # Fallback vers AWS/MinIO si Cellar n'est pas disponible
     ACCESS_KEY = (
-        os.getenv("CELLAR_ADDON_KEY_ID")
-        or os.getenv("AWS_ACCESS_KEY_ID")
+        os.getenv("AWS_ACCESS_KEY_ID")
         or os.getenv("aws_access_key_id")
     )
     SECRET_KEY = (
-        os.getenv("CELLAR_ADDON_KEY_SECRET")
-        or os.getenv("AWS_SECRET_ACCESS_KEY")
+        os.getenv("AWS_SECRET_ACCESS_KEY")
         or os.getenv("aws_secret_access_key")
     )
     ENDPOINT_URL = (
-        os.getenv("CELLAR_ADDON_HOST")
-        or os.getenv("AWS_S3_ENDPOINT")
+        os.getenv("AWS_S3_ENDPOINT")
         or os.getenv("aws_url")
     )
 
-    # Cellar expose l'hôte sans schéma ; boto3 attend une URL complète
     if ENDPOINT_URL and not ENDPOINT_URL.startswith(("http://", "https://")):
         ENDPOINT_URL = f"https://{ENDPOINT_URL}"
 
