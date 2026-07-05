@@ -18,7 +18,6 @@ from biolit.s3 import (
     _read_file_s3
 )
 import os
-import boto3
 
 LOGGER = structlog.get_logger()
 
@@ -77,22 +76,18 @@ def get_geometry_communes():
         print(f"✅ Fichier téléchargé: {file_path} ({total_size} octets)")
 
         # 3. Lecture du GeoJSON avec geopandas et renommage des colonnes
-        gdf = gpd.read_file(file_path).rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
+        gdf = gpd.read_file(file_path, layer="a_com2022").rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
 
         # 4. Conversion en parquet
         parquet_path = tmpdir / "geometry_communes.parquet"
         gdf.to_parquet(parquet_path)
 
-        # 5. Upload S3
-        client = boto3.client(
-            "s3",
-            endpoint_url=os.getenv("MINIO_ENDPOINT"),
-            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY"),
-            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY"),
-        )
+        # 5. Upload S3 avec le client configuré
+        client = create_s3_client()
+        bucket_name = os.getenv("MINIO_BUCKET", "biolit-uploads")
         client.upload_file(
             parquet_path,
-            os.getenv("MINIO_BUCKET", "biolit"),
+            bucket_name,
             "geoloc/data_gouv/geometry_communes.parquet"
         )
         print("✅ Fichier uploadé vers S3")
