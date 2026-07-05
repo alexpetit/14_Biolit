@@ -78,17 +78,19 @@ def get_geometry_communes():
         # 3. Lecture du GeoJSON avec geopandas et renommage des colonnes
         gdf = gpd.read_file(file_path, layer="a_com2022").rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
 
-        # 4. Conversion en parquet
-        parquet_path = tmpdir / "geometry_communes.parquet"
-        gdf.to_parquet(parquet_path)
+        # 4. Conversion en parquet en mémoire
+        buffer = BytesIO()
+        gdf.to_parquet(buffer)
+        buffer.seek(0)
 
-        # 5. Upload vers Cellar (S3 Clever Cloud)
+        # 5. Upload vers Cellar (S3 Clever Cloud) avec put_object
         client = create_s3_client()
         bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
-        client.upload_file(
-            parquet_path,
-            bucket_name,
-            "geoloc/data_gouv/geometry_communes.parquet"
+        client.put_object(
+            Body=buffer,
+            Bucket=bucket_name,
+            Key="geoloc/data_gouv/geometry_communes.parquet",
+            ContentLength=buffer.getbuffer().nbytes,
         )
         print("✅ Fichier uploadé vers Cellar")
 
