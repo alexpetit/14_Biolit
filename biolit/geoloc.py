@@ -10,6 +10,7 @@ from pathlib import Path
 import tempfile
 import zipfile
 import os
+import subprocess
 
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
@@ -18,8 +19,6 @@ from biolit.s3 import (
     _check_file_existence_s3,
     _read_file_s3
 )
-import boto3
-from botocore.config import Config
 
 LOGGER = structlog.get_logger()
 
@@ -53,47 +52,38 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 
     return df.to_pandas()
 
-def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
+def setup_s3cmd_for_cellar():
     """
-    Upload un fichier vers Cellar en utilisant un client boto3 dédié
-    avec configuration pour éviter le multipart upload
+    Configure s3cmd pour Cellar en utilisant les variables d'environnement
     """
-    print("DEBUG: === START upload_to_cellar_direct ===")
-
-    # Récupérer les credentials Cellar
     cellar_host = os.getenv("CELLAR_ADDON_HOST")
     cellar_key_id = os.getenv("CELLAR_ADDON_KEY_ID")
     cellar_key_secret = os.getenv("CELLAR_ADDON_KEY_SECRET")
 
-    print(f"DEBUG: Cellar credentials - host: {cellar_host}, key_id: {cellar_key_id[:5]}...")
-
     if not all([cellar_host, cellar_key_id, cellar_key_secret]):
-        error_msg = "Cellar credentials not found"
-        print(f"DEBUG: ERROR - {error_msg}")
-        raise ValueError(error_msg)
+        raise ValueError("Cellar credentials not found")
 
-    # Configuration pour désactiver le multipart upload
-    # On force un seuil très élevé pour que boto3 utilise toujours put_object simple
-    s3_config = Config(
-        signature_version='s3v4',
-        s3={
-            'addressing_style': 'virtual',
-            'multipart_threshold': 1024 * 1024 * 1024,  # 1GB threshold (forcer upload simple)
-            'max_concurrent_requests': 1,
-            'max_part_size': 1024 * 1024 * 1024
-        }
-    )
+    # Créer le fichier de configuration s3cmd
+    s3cmd_config = f"""[default]
+access_key = {cellar_key_id}
+secret_key = {cellar_key_secret}
+host_base = {cellar_host}
+host_bucket = %(bucket)s.{cellar_host}
+use_https = True
+"""
 
-    print("DEBUG: Creating Cellar S3 client with multipart_threshold=1GB...")
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=cellar_key_id,
-        aws_secret_access_key=cellar_key_secret,
-        endpoint_url=f"https://{cellar_host}",
-        region_name="fr-par",
-        config=s3_config
-    )
-    print("DEBUG: Cellar S3 client created")
+    config_path = Path.home() / ".s3cfg"
+    with open(config_path, 'w') as f:
+        f.write(s3cmd_config)
+
+    print(f"DEBUG: s3cmd config created at {config_path}")
+    return str(config_path)
+
+def upload_to_cellar_s3cmd(file_path: Path, bucket_name: str, key: str):
+    """
+    Upload un fichier vers Cellar en utilisant s3cmd (recommandé par Clever Cloud)
+    """
+    print("DEBUG: === START upload_to_cellar_s3cmd ===")
 
     # Vérifier que le fichier existe
     if not file_path.exists():
@@ -104,30 +94,49 @@ def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
     file_size = os.path.getsize(file_path)
     print(f"DEBUG: File size: {file_size} bytes")
 
-    # Upload avec put_object et fichier ouvert en binaire
-    # NE PAS spécifier ContentLength, boto3 le calcule automatiquement
+    # Configurer s3cmd
     try:
-        print(f"DEBUG: Uploading to Cellar - bucket: {bucket_name}, key: {key}")
-
-        with open(file_path, 'rb') as f:
-            # Utiliser upload_file avec un seuil élevé pour forcer le mode simple
-            s3_client.upload_fileobj(
-                f,
-                bucket_name,
-                key,
-                ExtraArgs={'ContentType': 'application/octet-stream'},
-                Config=s3_config
-            )
-
-        print("DEBUG: Upload completed!")
-        print("DEBUG: === END upload_to_cellar_direct (SUCCESS) ===")
-
+        setup_s3cmd_for_cellar()
+        print("DEBUG: s3cmd configured")
     except Exception as e:
-        print(f"DEBUG: ERROR during upload - {str(e)}")
-        print(f"DEBUG: Error type: {type(e).__name__}")
-        import traceback
-        traceback.print_exc()
-        print("DEBUG: === END upload_to_cellar_direct (FAILED) ===")
+        print(f"DEBUG: ERROR configuring s3cmd - {str(e)}")
+        raise
+
+    # Construire la commande s3cmd
+    # s3cmd put [OPTIONS] FILE S3_URI
+    s3_uri = f"s3://{bucket_name}/{key}"
+    cmd = ["s3cmd", "put", str(file_path), s3_uri]
+
+    print(f"DEBUG: Running command: {' '.join(cmd)}")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        print(f"DEBUG: s3cmd return code: {result.returncode}")
+        if result.stdout:
+            print(f"DEBUG: s3cmd stdout: {result.stdout}")
+        if result.stderr:
+            print(f"DEBUG: s3cmd stderr: {result.stderr}")
+
+        if result.returncode == 0:
+            print("DEBUG: Upload completed successfully!")
+            print("DEBUG: === END upload_to_cellar_s3cmd (SUCCESS) ===")
+            return
+        else:
+            error_msg = f"s3cmd failed with code {result.returncode}"
+            print(f"DEBUG: ERROR - {error_msg}")
+            raise Exception(error_msg)
+
+    except subprocess.TimeoutExpired:
+        print("DEBUG: ERROR - s3cmd timeout")
+        raise
+    except FileNotFoundError:
+        print("DEBUG: ERROR - s3cmd not installed")
         raise
 
 def get_geometry_communes() -> gpd.GeoDataFrame:
@@ -172,9 +181,9 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
         geometry_communes.to_parquet(parquet_path)
         print(f"DEBUG: Parquet created ({os.path.getsize(parquet_path)} bytes)")
 
-        # Upload direct
-        print("DEBUG: Uploading to Cellar...")
-        upload_to_cellar_direct(parquet_path, bucket_name, key)
+        # Upload avec s3cmd
+        print("DEBUG: Uploading to Cellar via s3cmd...")
+        upload_to_cellar_s3cmd(parquet_path, bucket_name, key)
         print("DEBUG: Upload successful!")
         print("DEBUG: === END get_geometry_communes (SUCCESS) ===")
 
