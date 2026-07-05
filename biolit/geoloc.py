@@ -19,6 +19,7 @@ from biolit.s3 import (
     _read_file_s3
 )
 import boto3
+from botocore.config import Config
 
 LOGGER = structlog.get_logger()
 
@@ -55,7 +56,7 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
     """
     Upload un fichier vers Cellar en utilisant un client boto3 dédié
-    avec la configuration exacte qui marche
+    avec configuration pour éviter le multipart upload
     """
     print("DEBUG: === START upload_to_cellar_direct ===")
 
@@ -71,21 +72,26 @@ def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
         print(f"DEBUG: ERROR - {error_msg}")
         raise ValueError(error_msg)
 
-    # Créer un client boto3 dédié à Cellar avec la bonne configuration
-    print("DEBUG: Creating Cellar S3 client...")
+    # Configuration pour désactiver le multipart upload
+    # On force un seuil très élevé pour que boto3 utilise toujours put_object simple
+    s3_config = Config(
+        signature_version='s3v4',
+        s3={
+            'addressing_style': 'virtual',
+            'multipart_threshold': 1024 * 1024 * 1024,  # 1GB threshold (forcer upload simple)
+            'max_concurrent_requests': 1,
+            'max_part_size': 1024 * 1024 * 1024
+        }
+    )
+
+    print("DEBUG: Creating Cellar S3 client with multipart_threshold=1GB...")
     s3_client = boto3.client(
         "s3",
         aws_access_key_id=cellar_key_id,
         aws_secret_access_key=cellar_key_secret,
         endpoint_url=f"https://{cellar_host}",
         region_name="fr-par",
-        # Désactiver la vérification SSL si nécessaire
-        verify=True,
-        # Configuration pour éviter les problèmes de ContentLength
-        config=boto3.session.Config(
-            signature_version='s3v4',
-            s3={'addressing_style': 'virtual'}
-        )
+        config=s3_config
     )
     print("DEBUG: Cellar S3 client created")
 
@@ -104,15 +110,16 @@ def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
         print(f"DEBUG: Uploading to Cellar - bucket: {bucket_name}, key: {key}")
 
         with open(file_path, 'rb') as f:
-            response = s3_client.put_object(
-                Body=f,
-                Bucket=bucket_name,
-                Key=key,
-                # ContentType pour les fichiers parquet
-                ContentType='application/octet-stream'
+            # Utiliser upload_file avec un seuil élevé pour forcer le mode simple
+            s3_client.upload_fileobj(
+                f,
+                bucket_name,
+                key,
+                ExtraArgs={'ContentType': 'application/octet-stream'},
+                Config=s3_config
             )
 
-        print(f"DEBUG: Upload completed! Status: {response.get('ResponseMetadata', {}).get('HTTPStatusCode')}")
+        print("DEBUG: Upload completed!")
         print("DEBUG: === END upload_to_cellar_direct (SUCCESS) ===")
 
     except Exception as e:
