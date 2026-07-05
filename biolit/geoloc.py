@@ -71,15 +71,15 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
                 .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
             )
 
-        # Enregistrement sur Cellar
-        buffer = BytesIO()
-        geometry_communes.to_parquet(buffer)
-        buffer.seek(0)
-        client.put_object(
-            Body=buffer,
-            Bucket=bucket_name,
-            Key=key,
-            ContentLength=buffer.getbuffer().nbytes,
+        # Enregistrement sur Cellar avec fichier temporaire
+        parquet_path = tmpdir / "geometry_communes.parquet"
+        geometry_communes.to_parquet(parquet_path)
+
+        # Upload avec upload_file pour éviter les problèmes de ContentLength
+        client.upload_file(
+            str(parquet_path),
+            bucket_name,
+            key
         )
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
