@@ -18,6 +18,7 @@ from biolit.s3 import (
     _check_file_existence_s3,
     _read_file_s3
 )
+import boto3
 
 LOGGER = structlog.get_logger()
 
@@ -48,6 +49,38 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 
     return df.to_pandas()
 
+def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
+    """
+    Upload un fichier vers Cellar en utilisant un client boto3 dédié
+    avec ContentLength explicite pour éviter les erreurs
+    """
+    # Récupérer les credentials Cellar
+    cellar_host = os.getenv("CELLAR_ADDON_HOST")
+    cellar_key_id = os.getenv("CELLAR_ADDON_KEY_ID")
+    cellar_key_secret = os.getenv("CELLAR_ADDON_KEY_SECRET")
+
+    if not all([cellar_host, cellar_key_id, cellar_key_secret]):
+        raise ValueError("Cellar credentials not found in environment variables")
+
+    # Créer un client boto3 dédié à Cellar
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=cellar_key_id,
+        aws_secret_access_key=cellar_key_secret,
+        endpoint_url=f"https://{cellar_host}",
+        region_name="fr-par"
+    )
+
+    # Upload avec ContentLength explicite
+    file_size = os.path.getsize(file_path)
+    with open(file_path, "rb") as f:
+        s3_client.put_object(
+            Body=f,
+            Bucket=bucket_name,
+            Key=key,
+            ContentLength=file_size
+        )
+
 def get_geometry_communes() -> gpd.GeoDataFrame:
     client = create_s3_client()
     key = "geoloc/data_gouv/geometry_communes.parquet"
@@ -74,17 +107,12 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
             .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
         )
 
-        # Enregistrement sur Cellar avec put_object (plus fiable que upload_file)
+        # Enregistrement sur Cellar
         parquet_path = tmpdir / "geometry_communes.parquet"
         geometry_communes.to_parquet(parquet_path)
 
-        # Upload avec put_object et fichier ouvert en binaire
-        with open(parquet_path, 'rb') as f:
-            client.put_object(
-                Body=f,
-                Bucket=bucket_name,
-                Key=key
-            )
+        # Upload direct avec gestion explicite du ContentLength
+        upload_to_cellar_direct(parquet_path, bucket_name, key)
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
     data = _read_file_s3(client, bucket_name, key)
