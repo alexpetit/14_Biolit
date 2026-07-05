@@ -74,16 +74,17 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
             .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
         )
 
-        # Enregistrement sur Cellar avec fichier physique
+        # Enregistrement sur Cellar avec put_object (plus fiable que upload_file)
         parquet_path = tmpdir / "geometry_communes.parquet"
         geometry_communes.to_parquet(parquet_path)
 
-        # Upload avec upload_file
-        client.upload_file(
-            str(parquet_path),
-            bucket_name,
-            key
-        )
+        # Upload avec put_object et fichier ouvert en binaire
+        with open(parquet_path, 'rb') as f:
+            client.put_object(
+                Body=f,
+                Bucket=bucket_name,
+                Key=key
+            )
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
     data = _read_file_s3(client, bucket_name, key)
