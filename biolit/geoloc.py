@@ -19,7 +19,6 @@ from biolit.s3 import (
 )
 import os
 import boto3
-import json
 
 LOGGER = structlog.get_logger()
 
@@ -77,19 +76,14 @@ def get_geometry_communes():
 
         print(f"✅ Fichier téléchargé: {file_path} ({total_size} octets)")
 
-        # 3. Conversion en parquet (ton code existant)
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        # Si c'est un GeoJSON FeatureCollection (format standard data.gouv.fr)
-        if isinstance(data, dict) and 'features' in data:
-            df = pd.json_normalize(data['features'])
-        else:
-            df = pd.DataFrame(data)
+        # 3. Lecture du GeoJSON avec geopandas et renommage des colonnes
+        gdf = gpd.read_file(file_path).rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
 
+        # 4. Conversion en parquet
         parquet_path = tmpdir / "geometry_communes.parquet"
-        df.to_parquet(parquet_path)
+        gdf.to_parquet(parquet_path)
 
-        # 4. Upload S3 (ton code existant)
+        # 5. Upload S3
         client = boto3.client(
             "s3",
             endpoint_url=os.getenv("MINIO_ENDPOINT"),
@@ -103,8 +97,8 @@ def get_geometry_communes():
         )
         print("✅ Fichier uploadé vers S3")
 
-        # 5. Retourne le DataFrame (si ta fonction originale le fait)
-        return df
+        # 6. Retourne le GeoDataFrame
+        return gdf
 
     except Exception as e:
         print(f"❌ ERREUR dans get_geometry_communes: {str(e)}")
