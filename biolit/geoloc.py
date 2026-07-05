@@ -10,9 +10,6 @@ from pathlib import Path
 import tempfile
 import zipfile
 import os
-from datetime import datetime
-import hashlib
-import hmac
 
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
@@ -21,6 +18,7 @@ from biolit.s3 import (
     _check_file_existence_s3,
     _read_file_s3
 )
+import boto3
 
 LOGGER = structlog.get_logger()
 
@@ -54,111 +52,75 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 
     return df.to_pandas()
 
-def sign_aws_v4_s3(key, msg):
-    """Sign a message with AWS Signature Version 4 for S3"""
-    return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
-
-def get_signing_key(key, date_stamp, region_name, service_name):
-    """Get AWS Signature Version 4 signing key"""
-    k_date = sign_aws_v4_s3(('AWS4' + key).encode('utf-8'), date_stamp)
-    k_region = sign_aws_v4_s3(k_date, region_name)
-    k_service = sign_aws_v4_s3(k_region, service_name)
-    k_signing = sign_aws_v4_s3(k_service, 'aws4_request')
-    return k_signing
-
-def upload_to_cellar_http(file_path: Path, bucket_name: str, key: str):
+def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
     """
-    Upload un fichier vers Cellar en utilisant l'API HTTP S3 directe
-    sans passer par boto3 (pour éviter les problèmes de ContentLength)
+    Upload un fichier vers Cellar en utilisant un client boto3 dédié
+    avec la configuration exacte qui marche
     """
-    print("DEBUG: === START upload_to_cellar_http ===")
+    print("DEBUG: === START upload_to_cellar_direct ===")
 
     # Récupérer les credentials Cellar
     cellar_host = os.getenv("CELLAR_ADDON_HOST")
     cellar_key_id = os.getenv("CELLAR_ADDON_KEY_ID")
     cellar_key_secret = os.getenv("CELLAR_ADDON_KEY_SECRET")
 
-    print(f"DEBUG: Cellar HTTP upload - host: {cellar_host}")
+    print(f"DEBUG: Cellar credentials - host: {cellar_host}, key_id: {cellar_key_id[:5]}...")
 
     if not all([cellar_host, cellar_key_id, cellar_key_secret]):
         error_msg = "Cellar credentials not found"
         print(f"DEBUG: ERROR - {error_msg}")
         raise ValueError(error_msg)
 
-    # Lire le fichier
-    with open(file_path, 'rb') as f:
-        file_data = f.read()
+    # Créer un client boto3 dédié à Cellar avec la bonne configuration
+    print("DEBUG: Creating Cellar S3 client...")
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=cellar_key_id,
+        aws_secret_access_key=cellar_key_secret,
+        endpoint_url=f"https://{cellar_host}",
+        region_name="fr-par",
+        # Désactiver la vérification SSL si nécessaire
+        verify=True,
+        # Configuration pour éviter les problèmes de ContentLength
+        config=boto3.session.Config(
+            signature_version='s3v4',
+            s3={'addressing_style': 'virtual'}
+        )
+    )
+    print("DEBUG: Cellar S3 client created")
 
-    file_size = len(file_data)
+    # Vérifier que le fichier existe
+    if not file_path.exists():
+        error_msg = f"File not found: {file_path}"
+        print(f"DEBUG: ERROR - {error_msg}")
+        raise FileNotFoundError(error_msg)
+
+    file_size = os.path.getsize(file_path)
     print(f"DEBUG: File size: {file_size} bytes")
 
-    # Préparer la requête S3
-    method = 'PUT'
-    service = 's3'
-    region = 'fr-par'
-
-    # Date et timestamp
-    amz_date = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-    date_stamp = datetime.utcnow().strftime('%Y%m%d')
-
-    # Canonical request
-    canonical_uri = f'/{bucket_name}/{key}'
-    canonical_querystring = ''
-    canonical_headers = f'host:{cellar_host}\n' + 'x-amz-content-type:application/octet-stream\n' + f'x-amz-date:{amz_date}\n'
-    signed_headers = 'host;x-amz-content-type;x-amz-date'
-    payload_hash = hashlib.sha256(file_data).hexdigest()
-
-    canonical_request = f'{method}\n{canonical_uri}\n{canonical_querystring}\n{canonical_headers}\n{signed_headers}\n{payload_hash}'
-
-    # String to sign
-    algorithm = 'AWS4-HMAC-SHA256'
-    credential_scope = f'{date_stamp}/{region}/{service}/aws4_request'
-    string_to_sign = f'{algorithm}\n{amz_date}\n{credential_scope}\n{hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()}'
-
-    # Calculer la signature
-    signing_key = get_signing_key(cellar_key_secret, date_stamp, region, service)
-    signature = hmac.new(signing_key, string_to_sign.encode('utf-8'), hashlib.sha256).hexdigest()
-
-    # Authorization header
-    authorization_header = (
-        f'{algorithm} Credential={cellar_key_id}/{credential_scope}, '
-        f'SignedHeaders={signed_headers}, Signature={signature}'
-    )
-
-    # URL
-    url = f'https://{cellar_host}/{bucket_name}/{key}'
-
-    # Headers
-    headers = {
-        'Host': cellar_host,
-        'x-amz-date': amz_date,
-        'x-amz-content-type': 'application/octet-stream',
-        'Authorization': authorization_header,
-        'Content-Length': str(file_size)
-    }
-
-    print(f"DEBUG: Uploading via HTTP PUT to {url}")
-    print(f"DEBUG: Content-Length header: {file_size}")
-
-    # Exécuter la requête
+    # Upload avec put_object et fichier ouvert en binaire
+    # NE PAS spécifier ContentLength, boto3 le calcule automatiquement
     try:
-        response = requests.put(url, data=file_data, headers=headers, timeout=60)
-        print(f"DEBUG: HTTP Response status: {response.status_code}")
-        print(f"DEBUG: HTTP Response text: {response.text[:200] if response.text else 'None'}")
+        print(f"DEBUG: Uploading to Cellar - bucket: {bucket_name}, key: {key}")
 
-        if response.status_code in [200, 201, 204]:
-            print("DEBUG: === END upload_to_cellar_http (SUCCESS) ===")
-            return
-        else:
-            error_msg = f"HTTP {response.status_code}: {response.text}"
-            print(f"DEBUG: ERROR - {error_msg}")
-            raise Exception(error_msg)
+        with open(file_path, 'rb') as f:
+            response = s3_client.put_object(
+                Body=f,
+                Bucket=bucket_name,
+                Key=key,
+                # ContentType pour les fichiers parquet
+                ContentType='application/octet-stream'
+            )
+
+        print(f"DEBUG: Upload completed! Status: {response.get('ResponseMetadata', {}).get('HTTPStatusCode')}")
+        print("DEBUG: === END upload_to_cellar_direct (SUCCESS) ===")
 
     except Exception as e:
-        print(f"DEBUG: ERROR during HTTP upload - {str(e)}")
+        print(f"DEBUG: ERROR during upload - {str(e)}")
+        print(f"DEBUG: Error type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
-        print("DEBUG: === END upload_to_cellar_http (FAILED) ===")
+        print("DEBUG: === END upload_to_cellar_direct (FAILED) ===")
         raise
 
 def get_geometry_communes() -> gpd.GeoDataFrame:
@@ -188,7 +150,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
                     if chunk:
                         f.write(chunk)
 
-        print(f"DEBUG: GeoJSON downloaded to {file_path} ({os.path.getsize(file_path)} bytes)")
+        print(f"DEBUG: GeoJSON downloaded ({os.path.getsize(file_path)} bytes)")
 
         print("DEBUG: Reading GeoJSON with geopandas...")
         geometry_communes = (
@@ -201,19 +163,19 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
         parquet_path = tmpdir / "geometry_communes.parquet"
         print("DEBUG: Converting to Parquet...")
         geometry_communes.to_parquet(parquet_path)
-        print(f"DEBUG: Parquet created: {parquet_path} ({os.path.getsize(parquet_path)} bytes)")
+        print(f"DEBUG: Parquet created ({os.path.getsize(parquet_path)} bytes)")
 
-        # Upload via HTTP direct
-        print("DEBUG: Uploading to Cellar via HTTP...")
-        upload_to_cellar_http(parquet_path, bucket_name, key)
-        print(f"DEBUG: Parquet uploaded to Cellar: s3://{bucket_name}/{key}")
+        # Upload direct
+        print("DEBUG: Uploading to Cellar...")
+        upload_to_cellar_direct(parquet_path, bucket_name, key)
+        print("DEBUG: Upload successful!")
         print("DEBUG: === END get_geometry_communes (SUCCESS) ===")
 
     else:
-        print("DEBUG: File already exists in S3, skipping download and upload")
+        print("DEBUG: File already exists in S3, skipping")
         print("DEBUG: === END get_geometry_communes (SKIPPED) ===")
 
-    print("DEBUG: Reading file from S3...")
+    print("DEBUG: Reading from S3...")
     data = _read_file_s3(client, bucket_name, key)
     gdf = gpd.read_parquet(io.BytesIO(data))
 
