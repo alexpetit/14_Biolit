@@ -25,7 +25,7 @@ def test_permissions(bucket_name):
         endpoint_url=ENDPOINT_URL
     )
 
-    LOGGER.info(f"\n🔎 Bucket: {bucket_name}")
+    LOGGER.info(f"\n🔍 Bucket: {bucket_name}")
 
     # 1. List bucket
     try:
@@ -52,43 +52,37 @@ def test_permissions(bucket_name):
     except ClientError as e:
         LOGGER.info(f"❌ DeleteObject: {e.response['Error']['Code']}")
 
-
 def create_s3_client():
-    # Ordre de priorité pour chaque réglage :
-    #   1. aws_* minuscules (convention historique du code)
-    #   2. AWS_* majuscules (convention standard AWS, utilisée par infra/.env)
-    #   3. CELLAR_ADDON_* (injecté automatiquement par l'add-on Cellar Clever Cloud)
+    # Priorité à Cellar (add-on Clever Cloud) pour éviter les conflits avec AWS/MinIO
+    #   1. CELLAR_ADDON_* (injecté automatiquement par l'add-on Cellar Clever Cloud)
+    #   2. AWS_* majuscules (convention standard AWS)
+    #   3. aws_* minuscules (convention historique du code)
     ACCESS_KEY = (
-        os.getenv("aws_access_key_id")
+        os.getenv("CELLAR_ADDON_KEY_ID")
         or os.getenv("AWS_ACCESS_KEY_ID")
-        or os.getenv("CELLAR_ADDON_KEY_ID")
+        or os.getenv("aws_access_key_id")
     )
     SECRET_KEY = (
-        os.getenv("aws_secret_access_key")
+        os.getenv("CELLAR_ADDON_KEY_SECRET")
         or os.getenv("AWS_SECRET_ACCESS_KEY")
-        or os.getenv("CELLAR_ADDON_KEY_SECRET")
+        or os.getenv("aws_secret_access_key")
     )
     ENDPOINT_URL = (
-        os.getenv("aws_url")
+        os.getenv("CELLAR_ADDON_HOST")
         or os.getenv("AWS_S3_ENDPOINT")
-        or os.getenv("CELLAR_ADDON_HOST")
+        or os.getenv("aws_url")
     )
 
     # Cellar expose l'hôte sans schéma ; boto3 attend une URL complète
     if ENDPOINT_URL and not ENDPOINT_URL.startswith(("http://", "https://")):
         ENDPOINT_URL = f"https://{ENDPOINT_URL}"
 
-    kwargs = dict(
+    return boto3.client(
+        "s3",
         aws_access_key_id=ACCESS_KEY,
         aws_secret_access_key=SECRET_KEY,
-        endpoint_url=ENDPOINT_URL,
+        endpoint_url=ENDPOINT_URL
     )
-    # Région optionnelle (Scaleway : fr-par) — ne pas l'imposer pour ne pas régresser l'existant
-    region = os.getenv("aws_region") or os.getenv("AWS_S3_REGION_NAME")
-    if region:
-        kwargs["region_name"] = region
-
-    return boto3.client("s3", **kwargs)
 
 def upload_parquet_s3(client, df, bucket_name: str, object_name: str):
     buffer = BytesIO()
@@ -151,4 +145,3 @@ def load_image_from_s3(s3_client,
     image=Image.open(BytesIO(image_data)).convert("RGB")
 
     return image
-
