@@ -22,6 +22,9 @@ import boto3
 
 LOGGER = structlog.get_logger()
 
+# PRINT INITIAL POUR VERIFIER QUE LE CODE EST BIEN CHARGE
+print("DEBUG: geoloc.py module loaded - Cellar upload debugging enabled")
+
 
 def geoloc_enrichie_data_biolit_db(engine):
     """
@@ -54,6 +57,8 @@ def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
     Upload un fichier vers Cellar en utilisant un client boto3 dédié
     avec ContentLength explicite et DEBUG PRINTS
     """
+    print("DEBUG: === START upload_to_cellar_direct ===")
+
     # Récupérer les credentials Cellar
     cellar_host = os.getenv("CELLAR_ADDON_HOST")
     cellar_key_id = os.getenv("CELLAR_ADDON_KEY_ID")
@@ -107,6 +112,7 @@ def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
             )
 
         print(f"DEBUG: Upload completed! Response: {response.get('ResponseMetadata', {}).get('HTTPStatusCode')}")
+        print("DEBUG: === END upload_to_cellar_direct (SUCCESS) ===")
 
     except Exception as e:
         print(f"DEBUG: ERROR during upload - {str(e)}")
@@ -114,9 +120,12 @@ def upload_to_cellar_direct(file_path: Path, bucket_name: str, key: str):
         import traceback
         print("DEBUG: Full traceback:")
         traceback.print_exc()
+        print("DEBUG: === END upload_to_cellar_direct (FAILED) ===")
         raise
 
 def get_geometry_communes() -> gpd.GeoDataFrame:
+    print("DEBUG: === START get_geometry_communes ===")
+
     client = create_s3_client()
     key = "geoloc/data_gouv/geometry_communes.parquet"
     bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
@@ -160,9 +169,11 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
         print("DEBUG: Uploading to Cellar...")
         upload_to_cellar_direct(parquet_path, bucket_name, key)
         print(f"DEBUG: Parquet uploaded to Cellar: s3://{bucket_name}/{key}")
+        print("DEBUG: === END get_geometry_communes (SUCCESS) ===")
 
     else:
         print("DEBUG: File already exists in S3, skipping download and upload")
+        print("DEBUG: === END get_geometry_communes (SKIPPED) ===")
 
     print("DEBUG: Reading file from S3...")
     data = _read_file_s3(client, bucket_name, key)
