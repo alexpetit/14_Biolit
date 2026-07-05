@@ -82,15 +82,15 @@ def get_geometry_communes():
         parquet_path = tmpdir / "geometry_communes.parquet"
         gdf.to_parquet(parquet_path)
 
-        # 5. Upload S3 avec le client configuré
+        # 5. Upload vers Cellar (S3 Clever Cloud)
         client = create_s3_client()
-        bucket_name = os.getenv("MINIO_BUCKET", "biolit-uploads")
+        bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
         client.upload_file(
             parquet_path,
             bucket_name,
             "geoloc/data_gouv/geometry_communes.parquet"
         )
-        print("✅ Fichier uploadé vers S3")
+        print("✅ Fichier uploadé vers Cellar")
 
         # 6. Retourne le GeoDataFrame
         return gdf
@@ -104,7 +104,7 @@ def get_geometry_communes():
 def get_info_communes() -> pd.DataFrame:
     client = create_s3_client()
     key = "geoloc/data_gouv/info_communes.parquet"
-    bucket_name = "biolit-uploads"
+    bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
     url = DATA_GOUV_INFO_COMMUNES_URL
 
     if not _check_file_existence_s3(client, bucket_name, key):
@@ -153,7 +153,7 @@ def get_info_communes() -> pd.DataFrame:
 
 def get_trace_littoral() -> gpd.GeoDataFrame:
     client = create_s3_client()
-    bucket_name = "biolit-uploads"
+    bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
     key = "geoloc/osm/coastlines.parquet"
     url = WORLD_COAST_LINES_URL
 
