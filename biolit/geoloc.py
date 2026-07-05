@@ -19,6 +19,7 @@ from biolit.s3 import (
 )
 import os
 import boto3
+import json
 
 LOGGER = structlog.get_logger()
 
@@ -77,7 +78,14 @@ def get_geometry_communes():
         print(f"✅ Fichier téléchargé: {file_path} ({total_size} octets)")
 
         # 3. Conversion en parquet (ton code existant)
-        df = pd.read_json(file_path)
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        # Si c'est un GeoJSON FeatureCollection (format standard data.gouv.fr)
+        if isinstance(data, dict) and 'features' in data:
+            df = pd.json_normalize(data['features'])
+        else:
+            df = pd.DataFrame(data)
+
         parquet_path = tmpdir / "geometry_communes.parquet"
         df.to_parquet(parquet_path)
 
