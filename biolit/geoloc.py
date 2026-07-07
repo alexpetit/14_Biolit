@@ -230,14 +230,21 @@ def get_info_communes() -> pd.DataFrame:
         info_communes.to_parquet(buffer)
         buffer.seek(0)
 
-        client.put_object(
-            Body=buffer,
-            Bucket=bucket_name,
-            Key=key,
-            ContentLength=buffer.getbuffer().nbytes,
-        )
+        # Debug: Vérifier la taille du buffer
+        buffer_size = buffer.getbuffer().nbytes
+        LOGGER.info("Uploading info_communes.parquet", size=buffer_size)
 
-        LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
+        try:
+            client.put_object(
+                Body=buffer,
+                Bucket=bucket_name,
+                Key=key,
+                ContentLength=buffer_size,  # Explicitement défini
+            )
+            LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
+        except Exception as e:
+            LOGGER.error("Failed to upload info_communes.parquet", error=str(e))
+            raise
 
     data = _read_file_s3(client, bucket_name, key)
     df = pd.read_parquet(io.BytesIO(data))
@@ -383,4 +390,3 @@ def get_info_distance_to_coast(frame: pd.DataFrame, distance_max: float = 8000) 
     gdf_export = gdf.drop(columns="geometry", errors="ignore")
 
     LOGGER.info("Biolit Data Points enriched with distance to coast", nb_not_coastal = (~gdf_export["is_coastal"]).sum(), nb_coastal = gdf_export["is_coastal"].sum())
-    return gdf_export
