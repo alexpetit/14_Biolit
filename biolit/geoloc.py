@@ -22,8 +22,12 @@ from biolit.s3 import (
 
 LOGGER = structlog.get_logger()
 
-# PRINT INITIAL POUR VERIFIER QUE LE CODE EST BIEN CHARGE
-print("DEBUG: geoloc.py module loaded - Using s3cmd for Cellar upload")
+# Debug: Afficher le commit ID pour vérifier la version déployée
+try:
+    COMMIT_ID = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd="/app").decode().strip()
+except Exception:
+    COMMIT_ID = os.getenv("CLEVER_COMMIT_ID", "unknown")
+LOGGER.info(f"DEPLOYED COMMIT: {COMMIT_ID} - FIXED MissingContentLength")
 
 
 def geoloc_enrichie_data_biolit_db(engine):
@@ -52,145 +56,41 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
 
     return df.to_pandas()
 
-def setup_s3cmd_for_cellar():
-    """
-    Configure s3cmd pour Cellar en utilisant les variables d'environnement
-    """
-    cellar_host = os.getenv("CELLAR_ADDON_HOST")
-    cellar_key_id = os.getenv("CELLAR_ADDON_KEY_ID")
-    cellar_key_secret = os.getenv("CELLAR_ADDON_KEY_SECRET")
-
-    if not all([cellar_host, cellar_key_id, cellar_key_secret]):
-        raise ValueError("Cellar credentials not found in environment variables")
-
-    # Créer le fichier de configuration s3cmd
-    s3cmd_config = f"""[default]
-access_key = {cellar_key_id}
-secret_key = {cellar_key_secret}
-host_base = {cellar_host}
-host_bucket = %(bucket)s.{cellar_host}
-use_https = True
-"""
-
-    config_path = Path.home() / ".s3cfg"
-    with open(config_path, 'w') as f:
-        f.write(s3cmd_config)
-
-    print(f"DEBUG: s3cmd config created at {config_path}")
-    return str(config_path)
-
-def upload_to_cellar_s3cmd(file_path: Path, bucket_name: str, key: str):
-    """
-    Upload un fichier vers Cellar en utilisant s3cmd (recommandé par Clever Cloud)
-    """
-    print("DEBUG: === START upload_to_cellar_s3cmd ===")
-
-    # Vérifier que le fichier existe
-    if not file_path.exists():
-        error_msg = f"File not found: {file_path}"
-        print(f"DEBUG: ERROR - {error_msg}")
-        raise FileNotFoundError(error_msg)
-
-    file_size = os.path.getsize(file_path)
-    print(f"DEBUG: File size: {file_size} bytes")
-
-    # Configurer s3cmd
-    try:
-        setup_s3cmd_for_cellar()
-        print("DEBUG: s3cmd configured")
-    except Exception as e:
-        print(f"DEBUG: ERROR configuring s3cmd - {str(e)}")
-        raise
-
-    # Construire la commande s3cmd
-    s3_uri = f"s3://{bucket_name}/{key}"
-    cmd = ["s3cmd", "put", str(file_path), s3_uri]
-
-    print(f"DEBUG: Running: {' '.join(cmd)}")
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120  # Timeout plus long pour les gros fichiers
-        )
-
-        print(f"DEBUG: s3cmd return code: {result.returncode}")
-        if result.stdout:
-            print(f"DEBUG: s3cmd stdout: {result.stdout.strip()}")
-        if result.stderr:
-            print(f"DEBUG: s3cmd stderr: {result.stderr.strip()}")
-
-        if result.returncode == 0:
-            print("DEBUG: Upload completed successfully!")
-            print("DEBUG: === END upload_to_cellar_s3cmd (SUCCESS) ===")
-            return
-        else:
-            error_msg = f"s3cmd failed with code {result.returncode}: {result.stderr.strip()}"
-            print(f"DEBUG: ERROR - {error_msg}")
-            raise Exception(error_msg)
-
-    except subprocess.TimeoutExpired:
-        print("DEBUG: ERROR - s3cmd timeout after 120 seconds")
-        raise
-    except FileNotFoundError:
-        print("DEBUG: ERROR - s3cmd not installed. Please install with: pip install s3cmd")
-        raise
-
 def get_geometry_communes() -> gpd.GeoDataFrame:
-    print("DEBUG: === START get_geometry_communes ===")
-
     client = create_s3_client()
     key = "geoloc/data_gouv/geometry_communes.parquet"
-    bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
+    bucket_name = "biolit-uploads"
     url = DATA_GOUV_CONTOUR_COMMUNES_URL
 
-    print(f"DEBUG: Checking if {key} exists in bucket {bucket_name}...")
-
     if not _check_file_existence_s3(client, bucket_name, key):
-        print(f"DEBUG: File not found in S3, downloading from {url}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            LOGGER.info("download_start", url=url)
 
-        # Utiliser un dossier temporaire persistant
-        tmpdir = Path(tempfile.gettempdir()) / "geoloc"
-        tmpdir.mkdir(parents=True, exist_ok=True)
-        print(f"DEBUG: Created temp directory: {tmpdir}")
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                file_path = tmpdir / "geometry_communes.json"
+                with open(file_path, "wb") as f:
+                    for chunk in r:
+                        if chunk:
+                            f.write(chunk)
+            geometry_communes = (
+                gpd.read_file(file_path, layer="a_com2022")
+                .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
+            )
 
-        print("DEBUG: Downloading GeoJSON file...")
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            file_path = tmpdir / "geometry_communes.json"
-            with open(file_path, "wb") as f:
-                for chunk in r:
-                    if chunk:
-                        f.write(chunk)
-
-        print(f"DEBUG: GeoJSON downloaded ({os.path.getsize(file_path)} bytes)")
-
-        print("DEBUG: Reading GeoJSON with geopandas...")
-        geometry_communes = (
-            gpd.read_file(file_path, layer="a_com2022")
-            .rename(columns={"codgeo": "code_insee", "libgeo": "nom_communes"})
+        # Enregistrement sur le S3
+        buffer = BytesIO()
+        geometry_communes.to_parquet(buffer)
+        buffer.seek(0)
+        client.put_object(
+            Body=buffer,
+            Bucket=bucket_name,
+            Key=key,
+            ContentLength=buffer.getbuffer().nbytes,
         )
-        print(f"DEBUG: GeoJSON processed - {len(geometry_communes)} features")
+        LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
-        # Enregistrement sur Cellar
-        parquet_path = tmpdir / "geometry_communes.parquet"
-        print("DEBUG: Converting to Parquet...")
-        geometry_communes.to_parquet(parquet_path)
-        print(f"DEBUG: Parquet created ({os.path.getsize(parquet_path)} bytes)")
-
-        # Upload avec s3cmd
-        print("DEBUG: Uploading to Cellar via s3cmd...")
-        upload_to_cellar_s3cmd(parquet_path, bucket_name, key)
-        print("DEBUG: Upload successful!")
-        print("DEBUG: === END get_geometry_communes (SUCCESS) ===")
-
-    else:
-        print("DEBUG: File already exists in S3, skipping")
-        print("DEBUG: === END get_geometry_communes (SKIPPED) ===")
-
-    print("DEBUG: Reading from S3...")
     data = _read_file_s3(client, bucket_name, key)
     gdf = gpd.read_parquet(io.BytesIO(data))
 
@@ -200,7 +100,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
 def get_info_communes() -> pd.DataFrame:
     client = create_s3_client()
     key = "geoloc/data_gouv/info_communes.parquet"
-    bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
+    bucket_name = "biolit-uploads"
     url = DATA_GOUV_INFO_COMMUNES_URL
 
     if not _check_file_existence_s3(client, bucket_name, key):
@@ -256,7 +156,7 @@ def get_info_communes() -> pd.DataFrame:
 
 def get_trace_littoral() -> gpd.GeoDataFrame:
     client = create_s3_client()
-    bucket_name = os.getenv("CELLAR_ADDON_BUCKET", "biolit-uploads")
+    bucket_name = "biolit-uploads"
     key = "geoloc/osm/coastlines.parquet"
     url = WORLD_COAST_LINES_URL
 
