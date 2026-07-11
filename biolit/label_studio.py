@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import structlog
 from label_studio_sdk import LabelStudio
 
+
 LOGGER = structlog.get_logger()
 load_dotenv()
 

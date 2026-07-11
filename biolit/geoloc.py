@@ -45,6 +45,7 @@ def geoloc_enrichie_data_biolit_db(engine):
     # 3. Enrichissement littoral
     df_coastal = get_info_distance_to_coast(df, 8000)
 
+    LOGGER.info(f"df_coastal type: {type(df_coastal)}, value: {df_coastal}")
     LOGGER.info("Geoloc enrichment done", count=len(df_coastal))
 
     return df_coastal
@@ -290,3 +291,4 @@ def get_info_distance_to_coast(frame: pd.DataFrame, distance_max: float = 8000) 
     gdf_export = gdf.drop(columns="geometry", errors="ignore")
 
     LOGGER.info("Biolit Data Points enriched with distance to coast", nb_not_coastal = (~gdf_export["is_coastal"]).sum(), nb_coastal = gdf_export["is_coastal"].sum())
+    return gdf_export

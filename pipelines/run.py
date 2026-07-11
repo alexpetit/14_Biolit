@@ -121,14 +121,20 @@ def run_pipeline():
         parquet_key = f"{dossier_inference}/taxonomy/predictions.parquet"
         upload_parquet_s3(s3_client, df_taxonomy, "biolit-uploads", parquet_key)
 
-        # Ajout des lien Doris
-        doris_file = _read_file_s3(s3_client, "biolit-uploads", "lien_doris/lien_doris.csv")
-        df_doris = pl.read_parquet(doris_file)
-        LOGGER.info("Fichier avec les liens Doris Lu")
-        df_doris = df_doris.with_columns(pl.col("nom_scientifique").str.to_lowercase())
-        df_taxonomy = df_taxonomy.with_columns(pl.col("species_name").str.to_lowercase())
-        # Enrichissement fichier taxo avec les liens Doris
-        df_taxonomy = df_taxonomy.join(df_doris, left_on="species_name", right_on="nom_scientifique", how="left")
+        # --- MODIFICATION : Doris optionnel ---
+        try:
+            doris_file = _read_file_s3(s3_client, "biolit-uploads", "lien_doris/lien_doris.csv")
+            df_doris = pl.read_parquet(doris_file)
+            LOGGER.info("Fichier avec les liens Doris Lu")
+            df_doris = df_doris.with_columns(pl.col("nom_scientifique").str.to_lowercase())
+            df_taxonomy = df_taxonomy.with_columns(pl.col("species_name").str.to_lowercase())
+            # Enrichissement fichier taxo avec les liens Doris
+            df_taxonomy = df_taxonomy.join(df_doris, left_on="species_name", right_on="nom_scientifique", how="left")
+            LOGGER.info("Enrichissement Doris appliqué")
+        except Exception as e:
+            LOGGER.warning(f"⚠️ Fichier lien_doris.csv introuvable, continuation sans Doris: {e}")
+            # On continue sans l'enrichissement Doris
+
         df_taxonomy = df_taxonomy.with_columns(
             pl.col("id_observation").cast(pl.Int64)
         ).join(
@@ -138,22 +144,6 @@ def run_pipeline():
         LOGGER.info("Classification taxonomique DONE ✅")
     else:
         LOGGER.info("Aucun crop à classifier → skip taxonomie ✅")
-
-    # -------------------------
-    # 5. ENVOIE DES IMAGES NON CROPPEES A LABEL STUDIO
-    # -------------------------
-    LOGGER.info("Connection to Label Studio...")
-    if len(df_no_crops) == 0:
-        LOGGER.info("Aucune image à envoyer à Label Studio → skip ✅")
-    else:
-        df_no_crops = df_no_crops.with_columns(
-            pl.col("id_observation").cast(pl.Int64)
-        ).join(
-            df_ml_to_process, on="id_observation"
-        )
-
-        push_tasks_label_studio_no_crops("Biolit No Crops", df_no_crops)
-        LOGGER.info("LABEL STUDIO DONE ✅")
 
     # -------------------------
     # 6. RECUPERATION DES INFOS DEPUIS LABEL STUDIO
