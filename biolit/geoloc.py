@@ -88,7 +88,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
             Body=buffer,
             Bucket=bucket_name,
             Key=key,
-            ContentLength=buffer.getbuffer().nbytes,
+            ContentLength=int(buffer.getbuffer().nbytes),
         )
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
@@ -140,7 +140,7 @@ def get_info_communes() -> pd.DataFrame:
                 Body=buffer,
                 Bucket=bucket_name,
                 Key=key,
-                ContentLength=buffer_size,  # Explicitement défini
+                ContentLength=int(buffer_size),  # Explicitement défini
             )
             LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
         except Exception as e:
@@ -188,7 +188,7 @@ def get_trace_littoral() -> gpd.GeoDataFrame:
             Body=buffer,
             Bucket=bucket_name,
             Key=key,
-            ContentLength=buffer.getbuffer().nbytes,
+            ContentLength=int(buffer.getbuffer().nbytes),
         )
 
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")

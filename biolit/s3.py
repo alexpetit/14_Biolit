@@ -71,8 +71,9 @@ def create_s3_client():
             # Configuration spécifique pour Cellar/Clever Cloud
             region_name="fr-par",  # Région par défaut pour Clever Cloud
             # Désactive la vérification SSL si nécessaire (pour les endpoints locaux)
-            # verify=False,  # À décommenter si SSL pose problème
+            verify=False,  # À décommenter si SSL pose problème
         )
+        LOGGER.info("Using Cellar S3 client (Clever Cloud)") 
 
     # Fallback vers AWS/MinIO si Cellar n'est pas disponible
     ACCESS_KEY = (
