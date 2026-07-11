@@ -22,12 +22,33 @@ from biolit.s3 import (
 
 LOGGER = structlog.get_logger()
 
-# Debug: Afficher le commit ID pour vérifier la version déployée
-try:
-    COMMIT_ID = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd="/app").decode().strip()
-except Exception:
-    COMMIT_ID = os.getenv("CLEVER_COMMIT_ID", "unknown")
-LOGGER.info(f"DEPLOYED COMMIT: {COMMIT_ID} - FIXED MissingContentLength")
+def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
+    """
+    Uploade un DataFrame vers S3 en utilisant s3cmd (contourne les problèmes de boto3 avec Cellar)
+    """
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+        tmp_path = tmp.name
+        df.write_parquet(tmp_path)
+
+    try:
+        # Commande s3cmd avec python -m
+        result = subprocess.run(
+            [
+                "python", "-m", "s3cmd", "put",
+                tmp_path,
+                f"s3://{bucket_name}/{key}"
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(f"✅ Upload réussi: s3://{bucket_name}/{key}")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erreur s3cmd: {e.stderr}")
+        raise
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def geoloc_enrichie_data_biolit_db(engine):
@@ -81,15 +102,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
             )
 
         # Enregistrement sur le S3
-        buffer = BytesIO()
-        geometry_communes.to_parquet(buffer)
-        buffer.seek(0)
-        client.put_object(
-            Body=buffer,
-            Bucket=bucket_name,
-            Key=key,
-            ContentLength=int(buffer.getbuffer().nbytes),
-        )
+        upload_to_s3_with_s3cmd(geometry_communes, bucket_name, key)
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
     data = _read_file_s3(client, bucket_name, key)
@@ -136,12 +149,7 @@ def get_info_communes() -> pd.DataFrame:
         LOGGER.info("Uploading info_communes.parquet", size=buffer_size)
 
         try:
-            client.put_object(
-                Body=buffer,
-                Bucket=bucket_name,
-                Key=key,
-                ContentLength=int(buffer_size),  # Explicitement défini
-            )
+            upload_to_s3_with_s3cmd(info_communes, bucket_name, key)
             LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
         except Exception as e:
             LOGGER.error("Failed to upload info_communes.parquet", error=str(e))
@@ -180,17 +188,7 @@ def get_trace_littoral() -> gpd.GeoDataFrame:
             shp = list(tmpdir.rglob("*.shp"))[0]
             gdf = gpd.read_file(shp).to_crs(epsg=2154)
 
-        buffer = BytesIO()
-        gdf.to_parquet(buffer)
-        buffer.seek(0)
-
-        client.put_object(
-            Body=buffer,
-            Bucket=bucket_name,
-            Key=key,
-            ContentLength=int(buffer.getbuffer().nbytes),
-        )
-
+        upload_to_s3_with_s3cmd(gdf, bucket_name, key)
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
     data = _read_file_s3(client, bucket_name, key)
