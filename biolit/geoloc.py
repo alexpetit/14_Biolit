@@ -28,7 +28,7 @@ def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
     """
     with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
         tmp_path = tmp.name
-        df.write_parquet(tmp_path)
+        df.to_parquet(tmp_path)
 
     try:
         # Commande s3cmd avec python -m
@@ -140,13 +140,6 @@ def get_info_communes() -> pd.DataFrame:
                 low_memory=False
             )
 
-        buffer = BytesIO()
-        info_communes.to_parquet(buffer)
-        buffer.seek(0)
-
-        # Debug: Vérifier la taille du buffer
-        buffer_size = buffer.getbuffer().nbytes
-        LOGGER.info("Uploading info_communes.parquet", size=buffer_size)
 
         try:
             upload_to_s3_with_s3cmd(info_communes, bucket_name, key)
