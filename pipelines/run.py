@@ -26,7 +26,6 @@ from biolit.label_studio import (
     extract_no_crops_data_from_label_studio
 )
 from biolit.s3 import (
-    create_s3_client,
     upload_parquet_s3,
     _read_file_s3
 )
@@ -116,8 +115,6 @@ def run_pipeline():
     if len(crops_images) > 0:
         LOGGER.info("Lancement du Flow de Classification Taxonomique")
         df_taxonomy = flow_ml_classification(crops_images, df_crops)
-
-        s3_client = create_s3_client()
         parquet_key = f"{dossier_inference}/taxonomy/predictions.parquet"
         upload_parquet_s3(s3_client, df_taxonomy, "biolit-uploads", parquet_key)
 
