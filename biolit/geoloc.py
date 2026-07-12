@@ -34,7 +34,7 @@ def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
         # Commande s3cmd avec python -m
         result = subprocess.run(
             [
-                "python", "-m", "s3cmd", "put",
+                "s3cmd", "put",
                 tmp_path,
                 f"s3://{bucket_name}/{key}"
             ],

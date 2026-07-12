@@ -21,7 +21,6 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync
 
 RUN pip install s3cmd
-RUN pip install matplotlib==3.10.9
 
 COPY . .
 

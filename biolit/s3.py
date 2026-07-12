@@ -107,7 +107,7 @@ def upload_parquet_s3(client, df, bucket_name: str, object_name: str):
         Body=buffer,
         Bucket=bucket_name,
         Key=object_name,
-        ContentLength=buffer.getbuffer().nbytes,
+        ContentLength=int(buffer.getbuffer().nbytes),
     )
     LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{object_name}")
 
