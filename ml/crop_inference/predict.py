@@ -136,7 +136,7 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
             upload_image_s3(
                 bucket_name=bucket,
                 key=object_name,
-                file_path=tmp_path  # Chemin du fichier temporaire
+                file_path=object_name  # Chemin du fichier temporaire
             )
             
             rows_no_crops.append({
@@ -164,7 +164,7 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
             upload_image_s3(
                 bucket_name=bucket,
                 key=object_name,
-                file_path=tmp_path
+                file_path=object_name
             )
 
             crops_images[id_crops] = crop
