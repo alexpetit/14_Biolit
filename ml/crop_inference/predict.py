@@ -118,7 +118,7 @@ def build_manifest(results: list, run_name: str, output_dir: str) -> list:
 
     return manifest
 
-def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tuple[pl.DataFrame, pl.DataFrame, dict]:
+def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.DataFrame, pl.DataFrame, dict]:
     rows = []
     rows_no_crops = []
     crops_images = {}
@@ -132,14 +132,13 @@ def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tupl
         # -------------------------
         if len(r.boxes) == 0:
             object_name = f"{run_name}/no_crops/{source_stem}.jpg"
-
+            
             upload_image_s3(
-                client=client,
-                pil_img=img,
                 bucket_name=bucket,
-                object_name=object_name
+                key=object_name,
+                file_path=tmp_path  # Chemin du fichier temporaire
             )
-
+            
             rows_no_crops.append({
                 "run_name": run_name,
                 "id_observation": source_stem,
@@ -163,10 +162,9 @@ def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tupl
             object_name = f"{run_name}/crops/{source_stem}_{cls_name}_{conf:.2f}.jpg"
 
             upload_image_s3(
-                client=client,
-                pil_img=crop,
                 bucket_name=bucket,
-                object_name=object_name
+                key=object_name,
+                file_path=tmp_path
             )
 
             crops_images[id_crops] = crop
