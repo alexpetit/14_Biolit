@@ -6,10 +6,54 @@ import botocore.exceptions
 from botocore.exceptions import ClientError
 from io import BytesIO
 from PIL import Image
+import subprocess
+import os
+import tempfile
 
 LOGGER = structlog.get_logger()
 load_dotenv()
 
+def upload_image_s3(bucket_name: str, key: str, file_path: str):
+    """
+    Upload une image vers Cellar (S3 Clever Cloud) avec s3cmd.
+    Configure automatiquement s3cmd avec les variables d'environnement.
+    """
+    # 1. Récupère les credentials Cellar
+    access_key = os.getenv("CELLAR_ADDON_KEY_ID")
+    secret_key = os.getenv("CELLAR_ADDON_KEY_SECRET")
+    host = os.getenv("CELLAR_ADDON_HOST")  # Ex: "cellar-c2.services.clever-cloud.com"
+
+    if not all([access_key, secret_key, host]):
+        raise ValueError(
+            "Missing Cellar credentials. "
+            "Check: CELLAR_ADDON_KEY_ID, CELLAR_ADDON_KEY_SECRET, CELLAR_ADDON_HOST"
+        )
+
+    # 2. Crée le fichier de config s3cmd (chemin absolu pour Clever Cloud)
+    s3cfg_path = "/root/.s3cfg"
+    os.makedirs(os.path.dirname(s3cfg_path), exist_ok=True)
+    with open(s3cfg_path, "w") as f:
+        f.write(f"""[default]
+        access_key = {access_key}
+        secret_key = {secret_key}
+        host_base = {host}
+        host_bucket = %(bucket)s.{host}  # URL complète du bucket
+        use_https = True
+        """)
+
+    # 3. Upload avec s3cmd
+    s3_url = f"s3://{bucket_name}.{host}/{key}"
+    try:
+        result = subprocess.run(
+            ["s3cmd", "put", file_path, s3_url],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(f"✅ Upload réussi: {s3_url}")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erreur s3cmd: {e.stderr}")
+        raise
 
 def test_permissions(bucket_name):
 
