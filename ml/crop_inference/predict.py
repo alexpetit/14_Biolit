@@ -13,7 +13,7 @@ from PIL import Image
 from ultralytics import YOLO
 from .model_loader import load_model_weights
 from .utils.logger import setup_logger
-from biolit.s3 import create_s3_client, upload_image_s3
+from biolit.s3 import upload_image_s3
 
 import ultralytics.nn.modules as modules
 import sys
