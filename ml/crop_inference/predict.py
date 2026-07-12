@@ -168,7 +168,7 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
             id_crops = f"{source_stem}_{cls_name}"
             object_name = f"{run_name}/crops/{source_stem}_{cls_name}_{conf:.2f}.jpg"
 
-            # Crée un fichier temporaire pour le crop
+            # Crée un fichier temporaire pour le crop, puis l'upload sur S3
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                 tmp_path = tmp.name
                 crop.save(tmp_path, format="JPEG")
@@ -178,7 +178,7 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
                     bucket_name=bucket,
                     key=object_name,
                     file_path=tmp_path  # <-- tmp_path est défini ici
-                )
+                )               
 
             crops_images[id_crops] = crop
 
