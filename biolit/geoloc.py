@@ -14,11 +14,10 @@ import subprocess
 
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
-from biolit.s3 import (
-    create_s3_client,
-    _check_file_existence_s3,
-    _read_file_s3
-)
+from biolit.s3_utils import S3CmdManager
+from biolit.s3 import create_s3_client
+
+s3 = S3CmdManager()  # Crée une instance unique
 
 LOGGER = structlog.get_logger()
 
@@ -108,7 +107,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
     bucket_name = "biolit-uploads"
     url = DATA_GOUV_CONTOUR_COMMUNES_URL
 
-    if not _check_file_existence_s3(client, bucket_name, key):
+    if not s3.file_exists(bucket_name, key):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             LOGGER.info("download_start", url=url)
@@ -139,7 +138,7 @@ def get_info_communes() -> pd.DataFrame:
     key = "geoloc/data_gouv/info_communes.parquet"
     bucket_name = "biolit-uploads"
     url = DATA_GOUV_INFO_COMMUNES_URL
-
+    client = create_s3_client()
     if not _check_file_existence_s3(client, bucket_name, key):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
@@ -183,7 +182,7 @@ def get_trace_littoral() -> gpd.GeoDataFrame:
     bucket_name = "biolit-uploads"
     key = "geoloc/osm/coastlines.parquet"
     url = WORLD_COAST_LINES_URL
-
+    client = create_s3_client()
     if not _check_file_existence_s3(client, bucket_name, key):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
