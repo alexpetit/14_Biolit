@@ -237,7 +237,7 @@ def run_predict(source: str, config_path: str, run_name: str, log_level: str = "
 
         df_crops, df_no_crops, crops_images = build_manifest_s3(
             results,
-            run_name=run_name
+            run_name=run_name,
             bucket="biolit-uploads"
         )
     except Exception:
