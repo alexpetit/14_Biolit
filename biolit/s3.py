@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from botocore.client import Config
 
+
 LOGGER = structlog.get_logger()
 load_dotenv()
 
@@ -28,12 +29,12 @@ def _configure_s3cmd():
     os.makedirs(os.path.dirname(s3cfg_path), exist_ok=True)
     with open(s3cfg_path, "w") as f:
         f.write(f"""[default]
-access_key = {access_key}
-secret_key = {secret_key}
-host_base = {host}
-host_bucket = %(bucket)s.{host}
-use_https = True
-""")
+        access_key = {access_key}
+        secret_key = {secret_key}
+        host_base = {host}
+        host_bucket = %(bucket)s.{host}
+        use_https = True
+        """)
     return host
 
 def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
@@ -66,7 +67,7 @@ def upload_image_s3(bucket_name: str, key: str, file_path: str):
     Upload une IMAGE vers Cellar avec s3cmd.
     """
     host = _configure_s3cmd()
-    s3_url = f"s3://{bucket_name}.{host}/{key}"
+    s3_url = f"s3://{bucket_name}/{key}"
     try:
         result = subprocess.run(
             ["s3cmd", "put", file_path, s3_url],
