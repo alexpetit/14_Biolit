@@ -48,6 +48,7 @@ dependencies = [
     "open-clip-torch>=2.24.0",
     "plotly>=5.0.0",
     "s3cmd",
+    "matplotlib>=3.10.0",
 ]
 
 [tool.pytest.ini_options]

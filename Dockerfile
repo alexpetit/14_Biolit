@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     libxcb-xfixes0 \
     libglib2.0-0 \
     libgl1 \
+    libfreetype6-dev \
+    libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install uv
@@ -19,6 +21,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync
 
 RUN pip install s3cmd
+RUN pip install matplotlib==3.10.9
 
 COPY . .
 
