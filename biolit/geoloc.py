@@ -105,7 +105,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
     bucket_name = "biolit-uploads"
     url = DATA_GOUV_CONTOUR_COMMUNES_URL
 
-    if not s3.file_exists(bucket_name, key):
+    if not _check_file_existence_s3(client, bucket_name, key):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             LOGGER.info("download_start", url=url)
