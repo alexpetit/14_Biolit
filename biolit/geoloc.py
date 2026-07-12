@@ -15,7 +15,6 @@ import subprocess
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
 from biolit.s3 import (
-    create_s3_client,
     _check_file_existence_s3,
     _read_file_s3
 )
@@ -104,7 +103,6 @@ def get_biolit_df_from_db(engine) -> pd.DataFrame:
     return df.to_pandas()
 
 def get_geometry_communes() -> gpd.GeoDataFrame:
-    client = create_s3_client()
     key = "geoloc/data_gouv/geometry_communes.parquet"
     bucket_name = "biolit-uploads"
     url = DATA_GOUV_CONTOUR_COMMUNES_URL
@@ -137,7 +135,6 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
     return gdf
 
 def get_info_communes() -> pd.DataFrame:
-    client = create_s3_client()
     key = "geoloc/data_gouv/info_communes.parquet"
     bucket_name = "biolit-uploads"
     url = DATA_GOUV_INFO_COMMUNES_URL
@@ -182,7 +179,6 @@ def get_info_communes() -> pd.DataFrame:
     return df
 
 def get_trace_littoral() -> gpd.GeoDataFrame:
-    client = create_s3_client()
     bucket_name = "biolit-uploads"
     key = "geoloc/osm/coastlines.parquet"
     url = WORLD_COAST_LINES_URL
