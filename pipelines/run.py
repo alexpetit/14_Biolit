@@ -26,7 +26,6 @@ from biolit.label_studio import (
     extract_no_crops_data_from_label_studio
 )
 from biolit.s3 import (
-    upload_parquet_s3,
     _read_file_s3
 )
 #from biolit.label_studio_postprocessing import (process_no_crop_annotations)
@@ -116,7 +115,7 @@ def run_pipeline():
         LOGGER.info("Lancement du Flow de Classification Taxonomique")
         df_taxonomy = flow_ml_classification(crops_images, df_crops)
         parquet_key = f"{dossier_inference}/taxonomy/predictions.parquet"
-        upload_parquet_s3(s3_client, df_taxonomy, "biolit-uploads", parquet_key)
+        """upload_parquet_s3(s3_client, df_taxonomy, "biolit-uploads", parquet_key)"""
 
         # --- MODIFICATION : Doris optionnel ---
         try:
