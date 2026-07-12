@@ -23,31 +23,22 @@ from biolit.s3 import (
 LOGGER = structlog.get_logger()
 
 def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
-        # 1. Crée le fichier de config s3cmd si inexistant
-    s3cfg_path = os.path.expanduser("~/.s3cfg")
-    if not os.path.exists(s3cfg_path):
-        # Récupère les credentials depuis les variables d'environnement Clever Cloud
-        access_key = os.getenv("CC_CELLAR_ADDON_ACCESS_KEY")
-        secret_key = os.getenv("CC_CELLAR_ADDON_SECRET_KEY")
-        host = os.getenv("CC_CELLAR_ADDON_HOST")
-        bucket = os.getenv("CC_CELLAR_ADDON_BUCKET")
+    # 1. Crée le fichier de config s3cmd avec les variables Clever Cloud
+    s3cfg_path = "/root/.s3cfg"  # Chemin absolu pour Clever Cloud
+    access_key = os.getenv("CC_CELLAR_ADDON_ACCESS_KEY")
+    secret_key = os.getenv("CC_CELLAR_ADDON_SECRET_KEY")
+    host = os.getenv("CC_CELLAR_ADDON_HOST")
 
-        if not all([access_key, secret_key, host]):
-            raise ValueError("Missing Clever Cloud Cellar credentials in environment variables")
-
-        # Crée le fichier de config
-        with open(s3cfg_path, "w") as f:
-            f.write(f"""[default]
-            access_key = {access_key}
-            secret_key = {secret_key}
-            host_base = {host}
-            host_bucket = %(bucket)s.{host}
-            use_https = True
-            """)
-
-    
-    
-    
+    # 2. Écrit le fichier de config
+    with open(s3cfg_path, "w") as f:
+        f.write(f"""[default]
+        access_key = {access_key}
+        secret_key = {secret_key}
+        host_base = {host}
+        host_bucket = %(bucket)s.{host}
+        use_https = True
+        """)
+            
     
     """
     Uploade un DataFrame vers S3 en utilisant s3cmd (contourne les problèmes de boto3 avec Cellar)
