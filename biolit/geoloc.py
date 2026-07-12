@@ -16,7 +16,7 @@ from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, 
 from biolit.create_table import load_observations_from_db
 from biolit.s3 import create_s3_client, _check_file_existence_s3, _read_file_s3
 
-
+client = create_s3_client()
 LOGGER = structlog.get_logger()
 
 def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
