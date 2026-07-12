@@ -17,6 +17,7 @@ from biolit.s3 import create_s3_client, upload_image_s3
 
 import ultralytics.nn.modules as modules
 import sys
+import tempfile
 
 import structlog
 LOGGER = structlog.get_logger()
@@ -133,12 +134,18 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
         if len(r.boxes) == 0:
             object_name = f"{run_name}/no_crops/{source_stem}.jpg"
             
-            upload_image_s3(
-                bucket_name=bucket,
-                key=object_name,
-                file_path=object_name  # Chemin du fichier temporaire
-            )
-            
+            # Crée un fichier temporaire pour l'image
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp_path = tmp.name
+                img.save(tmp_path, format="JPEG")
+
+                # Appel à upload_image_s3 avec tmp_path
+                upload_image_s3(
+                    bucket_name=bucket,
+                    key=object_name,
+                    file_path=tmp_path  # <-- tmp_path est défini ici
+                )
+
             rows_no_crops.append({
                 "run_name": run_name,
                 "id_observation": source_stem,
@@ -161,11 +168,17 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
             id_crops = f"{source_stem}_{cls_name}"
             object_name = f"{run_name}/crops/{source_stem}_{cls_name}_{conf:.2f}.jpg"
 
-            upload_image_s3(
-                bucket_name=bucket,
-                key=object_name,
-                file_path=object_name
-            )
+            # Crée un fichier temporaire pour le crop
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp_path = tmp.name
+                crop.save(tmp_path, format="JPEG")
+
+                # Appel à upload_image_s3 avec tmp_path
+                upload_image_s3(
+                    bucket_name=bucket,
+                    key=object_name,
+                    file_path=tmp_path  # <-- tmp_path est défini ici
+                )
 
             crops_images[id_crops] = crop
 
