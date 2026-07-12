@@ -14,10 +14,8 @@ import subprocess
 
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
-from biolit.s3_utils import S3CmdManager
-from biolit.s3 import create_s3_client
+from biolit.s3 import create_s3_client, _check_file_existence_s3, _read_file_s3
 
-s3 = S3CmdManager()  # Crée une instance unique
 
 LOGGER = structlog.get_logger()
 
