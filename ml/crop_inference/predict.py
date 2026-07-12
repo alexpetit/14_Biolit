@@ -13,7 +13,7 @@ from PIL import Image
 from ultralytics import YOLO
 from .model_loader import load_model_weights
 from .utils.logger import setup_logger
-from biolit.s3 import upload_image_s3
+from biolit.s3 import upload_image_s3, create_s3_client
 
 import ultralytics.nn.modules as modules
 import sys
@@ -246,7 +246,6 @@ def run_predict(source: str, config_path: str, run_name: str, log_level: str = "
     print_results(model, results)
 
     try:
-        client = create_s3_client()
 
         df_crops, df_no_crops, crops_images = build_manifest_s3(
             results,
