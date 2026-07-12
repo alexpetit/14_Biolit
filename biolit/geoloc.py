@@ -23,22 +23,30 @@ from biolit.s3 import (
 LOGGER = structlog.get_logger()
 
 def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
-    # 1. Crée le fichier de config s3cmd avec les variables Clever Cloud
-    s3cfg_path = "/root/.s3cfg"  # Chemin absolu pour Clever Cloud
-    access_key = os.getenv("CC_CELLAR_ADDON_ACCESS_KEY")
-    secret_key = os.getenv("CC_CELLAR_ADDON_SECRET_KEY")
-    host = os.getenv("CC_CELLAR_ADDON_HOST")
+   # 1. Récupère les credentials avec les BONNES variables (CELLAR_ADDON_*)
+    access_key = os.getenv("CELLAR_ADDON_KEY_ID") 
+    secret_key = os.getenv("CELLAR_ADDON_KEY_SECRET")
+    host = os.getenv("CELLAR_ADDON_HOST")
+    bucket = bucket_name
 
-    # 2. Écrit le fichier de config
+    if not all([access_key, secret_key, host]):
+        raise ValueError(
+            f"Missing Cellar credentials. "
+            f"Got: access_key={bool(access_key)}, secret_key={bool(secret_key)}, "
+            f"host={bool(host)}"
+        )
+
+    # 2. Crée le fichier de config s3cmd
+    s3cfg_path = "/root/.s3cfg"
     with open(s3cfg_path, "w") as f:
         f.write(f"""[default]
         access_key = {access_key}
         secret_key = {secret_key}
         host_base = {host}
-        host_bucket = %(bucket)s.{host}
-        use_https = True
+        host_bucket = {bucket}.{host}  # URL complète du bucket
+        use_https = True    
         """)
-            
+
     
     """
     Uploade un DataFrame vers S3 en utilisant s3cmd (contourne les problèmes de boto3 avec Cellar)
