@@ -20,8 +20,8 @@ COPY pyproject.toml uv.lock ./
 
 RUN uv sync
 
-RUN pip install s3cmd
-
+RUN pip install s3cmd && \
+    cp /app/.venv/bin/s3cmd /usr/local/bin/ 
 COPY . .
 
 ENV PYTHONPATH=/app
