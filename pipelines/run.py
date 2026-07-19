@@ -16,32 +16,103 @@ from biolit.create_table import (
     load_observations_from_db_for_ML
 )
 from biolit.geoloc import geoloc_enrichie_data_biolit_db
-from biolit.flow_gatekeeper import(
-    filter_observations_for_crop
-)
+from biolit.flow_gatekeeper import filter_observations_for_crop
 from biolit.label_studio import (
     push_tasks_label_studio_no_crops,
     push_tasks_label_studio_crops,
     extract_crops_data_from_label_studio,
     extract_no_crops_data_from_label_studio
 )
-from biolit.s3 import (
-    _read_file_s3
-)
-#from biolit.label_studio_postprocessing import (process_no_crop_annotations)
+from biolit.s3 import _configure_s3cmd
 from ml.crop_inference.predict import flow_ml_crops
 from ml.classification.pipeline_classification import flow_ml_classification
 import datetime
 import structlog
 import polars as pl
+import subprocess
+import tempfile
+import os
 from dotenv import load_dotenv
 
 LOGGER = structlog.get_logger()
 load_dotenv()
 
+
+def check_file_exists_s3cmd(bucket_name: str, key: str) -> bool:
+    """Verifie si un fichier existe sur S3 avec s3cmd."""
+    try:
+        host = _configure_s3cmd()
+        s3_url = f"s3://{bucket_name}.{host}/{key}"
+        result = subprocess.run(
+            ["s3cmd", "ls", s3_url],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0 and s3_url in result.stdout
+    except Exception as e:
+        LOGGER.warning(f"Erreur verification fichier S3: {e}")
+        return False
+
+
+def read_file_s3cmd(bucket_name: str, key: str) -> bytes:
+    """Lit un fichier depuis S3 avec s3cmd."""
+    try:
+        host = _configure_s3cmd()
+        s3_url = f"s3://{bucket_name}.{host}/{key}"
+
+        # Creer un fichier temporaire
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            subprocess.run(
+                ["s3cmd", "get", s3_url, tmp_path],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    except Exception as e:
+        LOGGER.error(f"Erreur lecture fichier S3: {e}")
+        raise
+
+
 def run_pipeline():
     dossier_inference = datetime.datetime.now().strftime("run_%Y%m%d_%H%M%S")
     LOGGER.info(dossier_inference)
+
+    # -------------------------
+    # 0. CONFIGURATION S3CMD POUR CLEVER CLOUD
+    # -------------------------
+    try:
+        _configure_s3cmd()
+        LOGGER.info("s3cmd configure avec succes pour Clever Cloud")
+        s3_available = True
+    except Exception as e:
+        LOGGER.warning(f"Impossible de configurer s3cmd: {e}")
+        s3_available = False
+
+    # -------------------------
+    # 0.5 VERIFIER CSV DORIS SUR CLEVER CLOUD S3
+    # -------------------------
+    if s3_available:
+        bucket_name = "biolit-uploads"
+        doris_key = "lien_doris/lien_doris.csv"
+
+        # Verifier si le fichier existe deja sur S3
+        if not check_file_exists_s3cmd(bucket_name, doris_key):
+            LOGGER.warning(
+                "Fichier DORIS introuvable sur S3 Clever Cloud. "
+                "Le pipeline necessitera ce fichier pour l'enrichissement."
+            )
+        else:
+            LOGGER.info("Fichier DORIS present sur S3 Clever Cloud")
+    else:
+        LOGGER.warning("s3cmd non disponible - verification DORIS skipped")
 
     # -------------------------
     # 1. INGESTION API
@@ -73,7 +144,7 @@ def run_pipeline():
 
     LOGGER.info("Saving enriched data into Postgres...")
     insert_enriched_dataframe(df_geo, engine)
-    LOGGER.info("Geoloc Enrichment DONE ✅")
+    LOGGER.info("Geoloc Enrichment DONE")
 
     # -------------------------
     # 3. FLOW ML CROPS
@@ -82,94 +153,143 @@ def run_pipeline():
     create_db_finale_table(engine)
     create_taxonomy_queue_table(engine)
 
-    LOGGER.info("Récupération des données à traiter pour le ML")
+    LOGGER.info("Recuperation des donnees a traiter pour le ML")
     df_ml = load_observations_from_db_for_ML(engine)
-    # On filtre le df avec toutes les images qui sont déjà passées dans le flow
+    # On filtre le df avec toutes les images qui sont deja passees dans le flow
     df_ml_to_process = filter_observations_for_crop(df_ml, engine)
     nb_to_process = len(df_ml_to_process)
 
-    LOGGER.info(
-        "Nombre d'observations à traiter",
-        value=nb_to_process
-    )
+    LOGGER.info("Nombre d'observations a traiter", value=nb_to_process)
 
     if nb_to_process == 0:
-        LOGGER.info("Aucune nouvelle observation à traiter → arrêt du pipeline ✅")
+        LOGGER.info("Aucune nouvelle observation a traiter -> arret du pipeline")
         return
 
     LOGGER.info("Lancement du Flow de ML Crop")
-    config_name="ml/crop_inference/config.yaml"
-    df_crops, df_no_crops, crops_images= flow_ml_crops(df_ml_to_process, config_name, dossier_inference)
-    LOGGER.info("Cropping des images réalisées")
-    LOGGER.info("Crops uploadés sur S3")
+    config_name = "ml/crop_inference/config.yaml"
+    df_crops, df_no_crops, crops_images = flow_ml_crops(
+        df_ml_to_process, config_name, dossier_inference
+    )
+    LOGGER.info("Cropping des images realisees")
+    LOGGER.info("Crops uploades sur S3")
 
-    LOGGER.info("Enregistrement des observations traitées dans Postgres")
+    LOGGER.info("Enregistrement des observations traitees dans Postgres")
     insert_crops_dataframe(df_crops, engine)
     insert_no_crops_dataframe(df_no_crops, engine)
-    LOGGER.info("Table de Crops et No Crops mises à jours")
+    LOGGER.info("Table de Crops et No Crops mises a jours")
 
     # -------------------------
     # 4. PASSAGE ML TAXONOMIE EXPORT VERS LABEL STUDIO
     # -------------------------
+
+    # --- ENVOI DES NO CROPS VERS LABEL STUDIO ---
+    if len(df_no_crops) > 0:
+        LOGGER.info("Envoi des observations sans crops vers Label Studio...")
+        push_tasks_label_studio_no_crops("Biolit No Crops", df_no_crops)
+        LOGGER.info(
+            f"{len(df_no_crops)} observations sans crops envoyees "
+            "vers Label Studio"
+        )
+    else:
+        LOGGER.info("Aucune observation sans crop a envoyer vers Label Studio")
+
+    # --- ENVOI DES CROPS VERS LABEL STUDIO (avec classification taxonomique) ---
     if len(crops_images) > 0:
         LOGGER.info("Lancement du Flow de Classification Taxonomique")
         df_taxonomy = flow_ml_classification(crops_images, df_crops)
-        parquet_key = f"{dossier_inference}/taxonomy/predictions.parquet"
-        """upload_parquet_s3(s3_client, df_taxonomy, "biolit-uploads", parquet_key)"""
 
-        # --- MODIFICATION : Doris optionnel ---
-        try:
-            doris_file = _read_file_s3(s3_client, "biolit-uploads", "lien_doris/lien_doris.csv")
-            df_doris = pl.read_parquet(doris_file)
-            LOGGER.info("Fichier avec les liens Doris Lu")
-            df_doris = df_doris.with_columns(pl.col("nom_scientifique").str.to_lowercase())
-            df_taxonomy = df_taxonomy.with_columns(pl.col("species_name").str.to_lowercase())
-            # Enrichissement fichier taxo avec les liens Doris
-            df_taxonomy = df_taxonomy.join(df_doris, left_on="species_name", right_on="nom_scientifique", how="left")
-            LOGGER.info("Enrichissement Doris appliqué")
-        except Exception as e:
-            LOGGER.warning(f"⚠️ Fichier lien_doris.csv introuvable, continuation sans Doris: {e}")
-            # On continue sans l'enrichissement Doris
+        # --- ENRICHISSEMENT AVEC LIENS DORIS (si disponible sur S3) ---
+        if s3_available:
+            try:
+                bucket_name = "biolit-uploads"
+                doris_key = "lien_doris/lien_doris.csv"
+
+                if check_file_exists_s3cmd(bucket_name, doris_key):
+                    csv_bytes = read_file_s3cmd(bucket_name, doris_key)
+                    df_doris = pl.read_csv(csv_bytes)
+                    LOGGER.info(f"Fichier DORIS charge: {len(df_doris)} especes")
+
+                    # Normalisation des noms pour la jointure
+                    df_doris = df_doris.with_columns(
+                        pl.col("nom_scientifique").str.to_lowercase()
+                    )
+                    df_taxonomy = df_taxonomy.with_columns(
+                        pl.col("species_name").str.to_lowercase()
+                    )
+
+                    # Enrichissement avec les liens Doris
+                    df_taxonomy = df_taxonomy.join(
+                        df_doris,
+                        left_on="species_name",
+                        right_on="nom_scientifique",
+                        how="left"
+                    )
+                    LOGGER.info("Enrichissement Doris applique")
+                else:
+                    LOGGER.warning(
+                        "Fichier DORIS introuvable sur S3 - "
+                        "continuation sans enrichissement"
+                    )
+            except Exception as e:
+                LOGGER.warning(f"Erreur enrichissement Doris: {e} - continuation sans")
+        else:
+            LOGGER.warning("s3cmd non disponible - enrichissement Doris skipped")
 
         df_taxonomy = df_taxonomy.with_columns(
             pl.col("id_observation").cast(pl.Int64)
-        ).join(
-            df_ml_to_process, on="id_observation"
-        )
+        ).join(df_ml_to_process, on="id_observation")
         push_tasks_label_studio_crops("Biolit Crops", df_taxonomy)
-        LOGGER.info("Classification taxonomique DONE ✅")
+        LOGGER.info("Classification taxonomique DONE")
     else:
-        LOGGER.info("Aucun crop à classifier → skip taxonomie ✅")
+        LOGGER.info("Aucun crop a classifier -> skip taxonomie")
 
     # -------------------------
     # 6. RECUPERATION DES INFOS DEPUIS LABEL STUDIO
     # -------------------------
-    LOGGER.info("Récupération des annotations réalisées depuis le dernier run ...")
-    data_label_studio_crops = extract_crops_data_from_label_studio("Biolit Crops", datetime.datetime(2025, 1, 1), datetime.datetime(2027, 1, 1))
+    LOGGER.info("Recuperation des annotations realisees depuis le dernier run...")
+    data_label_studio_crops = extract_crops_data_from_label_studio(
+        "Biolit Crops", datetime.datetime(2025, 1, 1), datetime.datetime(2027, 1, 1)
+    )
     LOGGER.info("Data collected from label studio projet Crops")
-    data_label_studio_no_crops = extract_no_crops_data_from_label_studio("Biolit No Crops", datetime.datetime(2025, 1, 1), datetime.datetime(2027, 1, 1))
+    data_label_studio_no_crops = extract_no_crops_data_from_label_studio(
+        "Biolit No Crops", datetime.datetime(2025, 1, 1), datetime.datetime(2027, 1, 1)
+    )
     LOGGER.info("Data collected from label studio projet No Crops")
 
-    # Insertion des données récupérées dans les tables postgresql
-    data_label_studio_crops_filtered = prepare_db_finale_dataframe(data_label_studio_crops)
+    # Insertion des donnees recuperes dans les tables postgresql
+    data_label_studio_crops_filtered = prepare_db_finale_dataframe(
+        data_label_studio_crops
+    )
     insert_db_finale_dataframe(data_label_studio_crops_filtered, engine)
-    LOGGER.info("Insertion db_finale terminée projet crops", rows_inserted=len(data_label_studio_crops_filtered))
-    data_label_studio_no_crops_filtered = prepare_db_finale_dataframe(data_label_studio_no_crops)
-    LOGGER.info("Insertion db_finale terminée projet no crops", rows_inserted=len(data_label_studio_no_crops_filtered))
+    LOGGER.info(
+        "Insertion db_finale terminee projet crops",
+        rows_inserted=len(data_label_studio_crops_filtered)
+    )
+    data_label_studio_no_crops_filtered = prepare_db_finale_dataframe(
+        data_label_studio_no_crops
+    )
+    LOGGER.info(
+        "Insertion db_finale terminee projet no crops",
+        rows_inserted=len(data_label_studio_no_crops_filtered)
+    )
     insert_db_finale_dataframe(data_label_studio_no_crops_filtered, engine)
 
-    # Enregistrement données de crops pour réentrainnement
+    # Enregistrement donnees de crops pour reentrainnement
     insert_taxonomy_queue_dataframe(data_label_studio_no_crops, engine)
-    LOGGER.info("Stockage données pour réentrainement projet, nombre de lignes stockées", rows_inserted=len(data_label_studio_no_crops))
+    LOGGER.info(
+        "Stockage donnees pour reentrainement projet, "
+        "nombre de lignes stockees",
+        rows_inserted=len(data_label_studio_no_crops)
+    )
 
     # -------------------------
-    # 7. CLEANING : SUPPRESION TACHES LABEL STUDIO + SUPPRESSION IMAGES SUR S3
+    # 7. CLEANING
     # -------------------------
-    LOGGER.info("Cleaning des tâches annotées depuis le précédent flow ...")
-    LOGGER.info("Cleaning du S3 ...")
-    LOGGER.info("Cleaning de LabelStudio ...")
+    LOGGER.info("Cleaning des taches annotees depuis le precedent flow...")
+    LOGGER.info("Cleaning du S3...")
+    LOGGER.info("Cleaning de LabelStudio...")
 
-    LOGGER.info("Fin du Flow : succès ✅")
+    LOGGER.info("Fin du Flow: succes")
 
 
 if __name__ == "__main__":
