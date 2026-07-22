@@ -23,10 +23,11 @@ from biolit.label_studio import (
     extract_crops_data_from_label_studio,
     extract_no_crops_data_from_label_studio
 )
-from biolit.s3 import _configure_s3cmd
+from biolit.s3 import _configure_s3cmd, create_s3_client
 from ml.crop_inference.predict import flow_ml_crops
 from ml.classification.pipeline_classification import flow_ml_classification
 import datetime
+import io
 import structlog
 import polars as pl
 import subprocess
@@ -100,17 +101,16 @@ def run_pipeline():
     # 0.5 VERIFIER CSV DORIS SUR CLEVER CLOUD S3
     # -------------------------
     if s3_available:
-        bucket_name = "biolit-uploads"
-        doris_key = "lien_doris/lien_doris.csv"
-
-        # Verifier si le fichier existe deja sur S3
-        if not check_file_exists_s3cmd(bucket_name, doris_key):
-            LOGGER.warning(
-                "Fichier DORIS introuvable sur S3 Clever Cloud. "
-                "Le pipeline necessitera ce fichier pour l'enrichissement."
+        try:
+            create_s3_client().head_object(
+                Bucket="biolit-uploads", Key="doris_data.csv"
             )
-        else:
-            LOGGER.info("Fichier DORIS present sur S3 Clever Cloud")
+            LOGGER.info("Fichier DORIS present sur S3 (doris_data.csv)")
+        except Exception:
+            LOGGER.warning(
+                "Fichier DORIS (doris_data.csv) introuvable sur S3 - "
+                "l'enrichissement DORIS sera ignore"
+            )
     else:
         LOGGER.warning("s3cmd non disponible - verification DORIS skipped")
 
@@ -185,6 +185,12 @@ def run_pipeline():
     # --- ENVOI DES NO CROPS VERS LABEL STUDIO ---
     if len(df_no_crops) > 0:
         LOGGER.info("Envoi des observations sans crops vers Label Studio...")
+        # df_no_crops ne contient que run_name/id_observation/path_s3 :
+        # jointure avec df_ml_to_process pour récupérer relais, reg_nom,
+        # nearest_commune, dep_nom, latitude, longitude (attendus par LS)
+        df_no_crops = df_no_crops.with_columns(
+            pl.col("id_observation").cast(pl.Int64)
+        ).join(df_ml_to_process, on="id_observation")
         push_tasks_label_studio_no_crops("Biolit No Crops", df_no_crops)
         LOGGER.info(
             f"{len(df_no_crops)} observations sans crops envoyees "
@@ -198,42 +204,35 @@ def run_pipeline():
         LOGGER.info("Lancement du Flow de Classification Taxonomique")
         df_taxonomy = flow_ml_classification(crops_images, df_crops)
 
-        # --- ENRICHISSEMENT AVEC LIENS DORIS (si disponible sur S3) ---
-        if s3_available:
-            try:
-                bucket_name = "biolit-uploads"
-                doris_key = "lien_doris/lien_doris.csv"
+        # --- ENRICHISSEMENT AVEC LIENS DORIS (Parquet sur Cellar via boto3) ---
+        try:
+            bucket_name = "biolit-uploads"
+            doris_key = "doris_data.csv"
 
-                if check_file_exists_s3cmd(bucket_name, doris_key):
-                    csv_bytes = read_file_s3cmd(bucket_name, doris_key)
-                    df_doris = pl.read_csv(csv_bytes)
-                    LOGGER.info(f"Fichier DORIS charge: {len(df_doris)} especes")
+            doris_bytes = create_s3_client().get_object(
+                Bucket=bucket_name, Key=doris_key
+            )["Body"].read()
+            df_doris = pl.read_parquet(io.BytesIO(doris_bytes))
+            LOGGER.info(f"Fichier DORIS charge: {len(df_doris)} especes")
 
-                    # Normalisation des noms pour la jointure
-                    df_doris = df_doris.with_columns(
-                        pl.col("nom_scientifique").str.to_lowercase()
-                    )
-                    df_taxonomy = df_taxonomy.with_columns(
-                        pl.col("species_name").str.to_lowercase()
-                    )
+            # Normalisation des noms pour la jointure
+            df_doris = df_doris.with_columns(
+                pl.col("nom_scientifique").str.to_lowercase()
+            )
+            df_taxonomy = df_taxonomy.with_columns(
+                pl.col("species_name").str.to_lowercase()
+            )
 
-                    # Enrichissement avec les liens Doris
-                    df_taxonomy = df_taxonomy.join(
-                        df_doris,
-                        left_on="species_name",
-                        right_on="nom_scientifique",
-                        how="left"
-                    )
-                    LOGGER.info("Enrichissement Doris applique")
-                else:
-                    LOGGER.warning(
-                        "Fichier DORIS introuvable sur S3 - "
-                        "continuation sans enrichissement"
-                    )
-            except Exception as e:
-                LOGGER.warning(f"Erreur enrichissement Doris: {e} - continuation sans")
-        else:
-            LOGGER.warning("s3cmd non disponible - enrichissement Doris skipped")
+            # Enrichissement avec les liens Doris
+            df_taxonomy = df_taxonomy.join(
+                df_doris,
+                left_on="species_name",
+                right_on="nom_scientifique",
+                how="left"
+            )
+            LOGGER.info("Enrichissement Doris applique")
+        except Exception as e:
+            LOGGER.warning(f"Erreur enrichissement Doris: {e} - continuation sans")
 
         df_taxonomy = df_taxonomy.with_columns(
             pl.col("id_observation").cast(pl.Int64)
