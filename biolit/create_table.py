@@ -518,11 +518,6 @@ def prepare_db_finale_dataframe(df: pl.DataFrame ) -> pl.DataFrame:
         dans db_finale.
         """
 
-        # Aucune annotation récupérée depuis Label Studio → df vide sans colonnes
-        if df.is_empty():
-            LOGGER.info("Aucune donnée Label Studio à préparer pour db_finale")
-            return df
-
         return (
             df
             .select([

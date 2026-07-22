@@ -185,11 +185,6 @@ def run_pipeline():
     # --- ENVOI DES NO CROPS VERS LABEL STUDIO ---
     if len(df_no_crops) > 0:
         LOGGER.info("Envoi des observations sans crops vers Label Studio...")
-        # Enrichir avec les colonnes geoloc/observation (relais, reg_nom,
-        # nearest_commune, dep_nom, lat/lon) attendues par Label Studio
-        df_no_crops = df_no_crops.with_columns(
-            pl.col("id_observation").cast(pl.Int64)
-        ).join(df_ml_to_process, on="id_observation")
         push_tasks_label_studio_no_crops("Biolit No Crops", df_no_crops)
         LOGGER.info(
             f"{len(df_no_crops)} observations sans crops envoyees "
