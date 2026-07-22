@@ -4,8 +4,6 @@ import os
 from dotenv import load_dotenv
 from io import BytesIO
 from PIL import Image
-import subprocess
-import tempfile
 from botocore.client import Config
 
 
@@ -13,72 +11,36 @@ LOGGER = structlog.get_logger()
 load_dotenv()
 
 # =============================================
-# FONCTIONS POUR S3CMD (Uploads vers Cellar)
+# UPLOADS BOTO3 (vers Cellar)
 # =============================================
 
-def _configure_s3cmd():
-    """Configure s3cmd avec les variables Clever Cloud."""
-    access_key = os.getenv("CELLAR_ADDON_KEY_ID")
-    secret_key = os.getenv("CELLAR_ADDON_KEY_SECRET")
-    host = os.getenv("CELLAR_ADDON_HOST")
+def upload_parquet_s3(client, df, bucket_name: str, object_name: str):
+    """Upload un DataFrame Polars (Parquet) vers Cellar via boto3."""
+    buffer = BytesIO()
+    df.write_parquet(buffer)
+    buffer.seek(0)
+    client.put_object(
+        Body=buffer,
+        Bucket=bucket_name,
+        Key=object_name,
+        ContentLength=buffer.getbuffer().nbytes,
+    )
+    LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{object_name}")
 
-    if not all([access_key, secret_key, host]):
-        raise ValueError("Missing Cellar credentials: CELLAR_ADDON_KEY_ID, CELLAR_ADDON_KEY_SECRET, CELLAR_ADDON_HOST")
 
-    s3cfg_path = "/root/.s3cfg"
-    os.makedirs(os.path.dirname(s3cfg_path), exist_ok=True)
-    with open(s3cfg_path, "w") as f:
-        f.write(f"""[default]
-        access_key = {access_key}
-        secret_key = {secret_key}
-        host_base = {host}
-        host_bucket = %(bucket)s.{host}
-        use_https = True
-        """)
-    return host
-
-def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
-    """
-    Upload un DataFrame (Parquet) vers Cellar avec s3cmd.
-    """
-    host = _configure_s3cmd()
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
-        tmp_path = tmp.name
-        df.to_parquet(tmp_path)
-
-    try:
-        s3_url = f"s3://{bucket_name}.{host}/{key}"
-        result = subprocess.run(
-            ["s3cmd", "put", tmp_path, s3_url],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        LOGGER.info(f"✅ Upload réussi: {s3_url}")
-    except subprocess.CalledProcessError as e:
-        LOGGER.error(f"❌ Erreur s3cmd: {e.stderr}")
-        raise
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-def upload_image_s3(bucket_name: str, key: str, file_path: str):
-    """
-    Upload une IMAGE vers Cellar avec s3cmd.
-    """
-    host = _configure_s3cmd()
-    s3_url = f"s3://{bucket_name}/{key}"
-    try:
-        result = subprocess.run(
-            ["s3cmd", "put", file_path, s3_url],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        LOGGER.info(f"✅ Upload réussi: {s3_url}")
-    except subprocess.CalledProcessError as e:
-        LOGGER.error(f"❌ Erreur s3cmd: {e.stderr}")
-        raise
+def upload_image_s3(client, pil_img: Image.Image, bucket_name: str, object_name: str):
+    """Upload une image PIL (JPEG) vers Cellar via boto3."""
+    buffer = BytesIO()
+    pil_img.save(buffer, format="JPEG")
+    buffer.seek(0)
+    client.put_object(
+        Body=buffer,
+        Bucket=bucket_name,
+        Key=object_name,
+        ContentType="image/jpeg",
+        ContentLength=buffer.getbuffer().nbytes,
+    )
+    LOGGER.info("Image uploaded", key=object_name)
 
 # =============================================
 # FONCTIONS POUR BOTO3 (Checks/Lectures)
@@ -101,7 +63,13 @@ def create_s3_client():
         aws_access_key_id=key_id,
         aws_secret_access_key=key_secret,
         region_name="fr-par",
-        config=Config(signature_version="s3v4"),
+        config=Config(
+            signature_version="s3v4",
+            # Cellar rejette l'encodage aws-chunked (checksum CRC32 par défaut
+            # de botocore >=1.36) -> MissingContentLength. On le désactive.
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+        ),
         verify=False
     )
 

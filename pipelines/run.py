@@ -23,63 +23,17 @@ from biolit.label_studio import (
     extract_crops_data_from_label_studio,
     extract_no_crops_data_from_label_studio
 )
-from biolit.s3 import _configure_s3cmd, create_s3_client
+from biolit.s3 import create_s3_client
 from ml.crop_inference.predict import flow_ml_crops
 from ml.classification.pipeline_classification import flow_ml_classification
 import datetime
 import io
 import structlog
 import polars as pl
-import subprocess
-import tempfile
-import os
 from dotenv import load_dotenv
 
 LOGGER = structlog.get_logger()
 load_dotenv()
-
-
-def check_file_exists_s3cmd(bucket_name: str, key: str) -> bool:
-    """Verifie si un fichier existe sur S3 avec s3cmd."""
-    try:
-        host = _configure_s3cmd()
-        s3_url = f"s3://{bucket_name}.{host}/{key}"
-        result = subprocess.run(
-            ["s3cmd", "ls", s3_url],
-            capture_output=True,
-            text=True
-        )
-        return result.returncode == 0 and s3_url in result.stdout
-    except Exception as e:
-        LOGGER.warning(f"Erreur verification fichier S3: {e}")
-        return False
-
-
-def read_file_s3cmd(bucket_name: str, key: str) -> bytes:
-    """Lit un fichier depuis S3 avec s3cmd."""
-    try:
-        host = _configure_s3cmd()
-        s3_url = f"s3://{bucket_name}.{host}/{key}"
-
-        # Creer un fichier temporaire
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            subprocess.run(
-                ["s3cmd", "get", s3_url, tmp_path],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            with open(tmp_path, "rb") as f:
-                return f.read()
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-    except Exception as e:
-        LOGGER.error(f"Erreur lecture fichier S3: {e}")
-        raise
 
 
 def run_pipeline():
@@ -87,32 +41,18 @@ def run_pipeline():
     LOGGER.info(dossier_inference)
 
     # -------------------------
-    # 0. CONFIGURATION S3CMD POUR CLEVER CLOUD
+    # 0. VERIFICATION DU FICHIER DORIS SUR S3 (Cellar)
     # -------------------------
     try:
-        _configure_s3cmd()
-        LOGGER.info("s3cmd configure avec succes pour Clever Cloud")
-        s3_available = True
-    except Exception as e:
-        LOGGER.warning(f"Impossible de configurer s3cmd: {e}")
-        s3_available = False
-
-    # -------------------------
-    # 0.5 VERIFIER CSV DORIS SUR CLEVER CLOUD S3
-    # -------------------------
-    if s3_available:
-        try:
-            create_s3_client().head_object(
-                Bucket="biolit-uploads", Key="doris_data.csv"
-            )
-            LOGGER.info("Fichier DORIS present sur S3 (doris_data.csv)")
-        except Exception:
-            LOGGER.warning(
-                "Fichier DORIS (doris_data.csv) introuvable sur S3 - "
-                "l'enrichissement DORIS sera ignore"
-            )
-    else:
-        LOGGER.warning("s3cmd non disponible - verification DORIS skipped")
+        create_s3_client().head_object(
+            Bucket="biolit-uploads", Key="doris_data.csv"
+        )
+        LOGGER.info("Fichier DORIS present sur S3 (doris_data.csv)")
+    except Exception:
+        LOGGER.warning(
+            "Fichier DORIS (doris_data.csv) introuvable sur S3 - "
+            "l'enrichissement DORIS sera ignore"
+        )
 
     # -------------------------
     # 1. INGESTION API

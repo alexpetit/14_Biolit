@@ -9,8 +9,6 @@ from io import BytesIO
 from pathlib import Path
 import tempfile
 import zipfile
-import os
-import subprocess
 
 from biolit import DATA_GOUV_INFO_COMMUNES_URL, DATA_GOUV_CONTOUR_COMMUNES_URL, WORLD_COAST_LINES_URL
 from biolit.create_table import load_observations_from_db
@@ -19,58 +17,18 @@ from biolit.s3 import create_s3_client, _check_file_existence_s3, _read_file_s3
 client = create_s3_client()
 LOGGER = structlog.get_logger()
 
-def upload_to_s3_with_s3cmd(df, bucket_name: str, key: str):
-   # 1. Récupère les credentials avec les BONNES variables (CELLAR_ADDON_*)
-    access_key = os.getenv("CELLAR_ADDON_KEY_ID") 
-    secret_key = os.getenv("CELLAR_ADDON_KEY_SECRET")
-    host = os.getenv("CELLAR_ADDON_HOST")
-    bucket = bucket_name
-
-    if not all([access_key, secret_key, host]):
-        raise ValueError(
-            f"Missing Cellar credentials. "
-            f"Got: access_key={bool(access_key)}, secret_key={bool(secret_key)}, "
-            f"host={bool(host)}"
-        )
-
-    # 2. Crée le fichier de config s3cmd
-    s3cfg_path = "/root/.s3cfg"
-    with open(s3cfg_path, "w") as f:
-        f.write(f"""[default]
-        access_key = {access_key}
-        secret_key = {secret_key}
-        host_base = {host}
-        host_bucket = {bucket}.{host}  # URL complète du bucket
-        use_https = True    
-        """)
-
-    
-    """
-    Uploade un DataFrame vers S3 en utilisant s3cmd (contourne les problèmes de boto3 avec Cellar)
-    """
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
-        tmp_path = tmp.name
-        df.to_parquet(tmp_path)
-
-    try:
-        # Commande s3cmd avec python -m
-        result = subprocess.run(
-            [
-                "s3cmd", "put",
-                tmp_path,
-                f"s3://{bucket_name}/{key}"
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        print(f"✅ Upload réussi: s3://{bucket_name}/{key}")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Erreur s3cmd: {e.stderr}")
-        raise
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+def upload_gdf_parquet_s3(df, bucket_name: str, key: str):
+    """Uploade un DataFrame (Geo)Pandas en Parquet vers Cellar via boto3."""
+    buffer = BytesIO()
+    df.to_parquet(buffer)
+    buffer.seek(0)
+    client.put_object(
+        Body=buffer,
+        Bucket=bucket_name,
+        Key=key,
+        ContentLength=buffer.getbuffer().nbytes,
+    )
+    LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
 
 def geoloc_enrichie_data_biolit_db(engine):
@@ -123,7 +81,7 @@ def get_geometry_communes() -> gpd.GeoDataFrame:
             )
 
         # Enregistrement sur le S3
-        upload_to_s3_with_s3cmd(geometry_communes, bucket_name, key)
+        upload_gdf_parquet_s3(geometry_communes, bucket_name, key)
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
     data = _read_file_s3(client, bucket_name, key)
@@ -162,7 +120,7 @@ def get_info_communes() -> pd.DataFrame:
 
 
         try:
-            upload_to_s3_with_s3cmd(info_communes, bucket_name, key)
+            upload_gdf_parquet_s3(info_communes, bucket_name, key)
             LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
         except Exception as e:
             LOGGER.error("Failed to upload info_communes.parquet", error=str(e))
@@ -200,7 +158,7 @@ def get_trace_littoral() -> gpd.GeoDataFrame:
             shp = list(tmpdir.rglob("*.shp"))[0]
             gdf = gpd.read_file(shp).to_crs(epsg=2154)
 
-        upload_to_s3_with_s3cmd(gdf, bucket_name, key)
+        upload_gdf_parquet_s3(gdf, bucket_name, key)
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
 
     data = _read_file_s3(client, bucket_name, key)

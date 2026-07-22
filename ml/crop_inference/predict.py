@@ -17,7 +17,6 @@ from biolit.s3 import upload_image_s3, create_s3_client
 
 import ultralytics.nn.modules as modules
 import sys
-import tempfile
 
 import structlog
 LOGGER = structlog.get_logger()
@@ -119,7 +118,7 @@ def build_manifest(results: list, run_name: str, output_dir: str) -> list:
 
     return manifest
 
-def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.DataFrame, pl.DataFrame, dict]:
+def build_manifest_s3(results: list, run_name: str, client, bucket: str) -> tuple[pl.DataFrame, pl.DataFrame, dict]:
     rows = []
     rows_no_crops = []
     crops_images = {}
@@ -133,18 +132,12 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
         # -------------------------
         if len(r.boxes) == 0:
             object_name = f"{run_name}/no_crops/{source_stem}.jpg"
-            
-            # Crée un fichier temporaire pour l'image
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                tmp_path = tmp.name
-                img.save(tmp_path, format="JPEG")
-
-                # Appel à upload_image_s3 avec tmp_path
-                upload_image_s3(
-                    bucket_name=bucket,
-                    key=object_name,
-                    file_path=tmp_path  # <-- tmp_path est défini ici
-                )
+            upload_image_s3(
+                client=client,
+                pil_img=img,
+                bucket_name=bucket,
+                object_name=object_name,
+            )
 
             rows_no_crops.append({
                 "run_name": run_name,
@@ -168,17 +161,12 @@ def build_manifest_s3(results: list, run_name: str, bucket: str) -> tuple[pl.Dat
             id_crops = f"{source_stem}_{cls_name}"
             object_name = f"{run_name}/crops/{source_stem}_{cls_name}_{conf:.2f}.jpg"
 
-            # Crée un fichier temporaire pour le crop, puis l'upload sur S3
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                tmp_path = tmp.name
-                crop.save(tmp_path, format="JPEG")
-
-                # Appel à upload_image_s3 avec tmp_path
-                upload_image_s3(
-                    bucket_name=bucket,
-                    key=object_name,
-                    file_path=tmp_path  # <-- tmp_path est défini ici
-                )               
+            upload_image_s3(
+                client=client,
+                pil_img=crop,
+                bucket_name=bucket,
+                object_name=object_name,
+            )
 
             crops_images[id_crops] = crop
 
@@ -250,6 +238,7 @@ def run_predict(source: str, config_path: str, run_name: str, log_level: str = "
         df_crops, df_no_crops, crops_images = build_manifest_s3(
             results,
             run_name=run_name,
+            client=create_s3_client(),
             bucket="biolit-uploads"
         )
     except Exception:
