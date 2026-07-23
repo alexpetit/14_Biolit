@@ -53,3 +53,14 @@ dependencies = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+# Clever Cloud n'a pas de GPU : on force les wheels CPU de PyTorch
+# (bien plus légers que les wheels CUDA par défaut -> image ~7 Go -> ~2-3 Go).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
