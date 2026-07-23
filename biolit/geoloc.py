@@ -156,7 +156,12 @@ def get_trace_littoral() -> gpd.GeoDataFrame:
                 z.extractall(tmpdir)
 
             shp = list(tmpdir.rglob("*.shp"))[0]
-            gdf = gpd.read_file(shp).to_crs(epsg=2154)
+            # Biolit = littoral français : on filtre les traits de côte à l'emprise
+            # France DÈS LA LECTURE (bbox en lon/lat, EPSG:4326 du shapefile OSM).
+            # Charger le monde entier fait ~1,2 Go en mémoire (OOM sur un scaler M) ;
+            # ici on ne lit que la côte française -> quelques Mo.
+            france_bbox = (-6.0, 41.0, 10.0, 52.0)  # (min_lon, min_lat, max_lon, max_lat)
+            gdf = gpd.read_file(shp, bbox=france_bbox).to_crs(epsg=2154)
 
         upload_gdf_parquet_s3(gdf, bucket_name, key)
         LOGGER.info("Parquet uploaded", path=f"s3://{bucket_name}/{key}")
