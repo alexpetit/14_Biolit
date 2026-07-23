@@ -518,6 +518,12 @@ def prepare_db_finale_dataframe(df: pl.DataFrame ) -> pl.DataFrame:
         dans db_finale.
         """
 
+        # Aucune annotation à relire depuis Label Studio (ex. 1er cycle) :
+        # df vide sans colonnes -> on retourne tel quel (les insert_* skippent le vide)
+        if df.is_empty():
+            LOGGER.info("Aucune donnée Label Studio à préparer pour db_finale")
+            return df
+
         return (
             df
             .select([
