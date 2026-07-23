@@ -32,6 +32,7 @@ dependencies = [
     "transformers>=4.40",
     "tokenizers>=0.19",
     "torch>=2.11.0",
+    "torchvision",
     "roboflow>=1.2.16",
     "autodistill>=0.1.29",
     "autodistill-grounding-dino>=0.1.4",
