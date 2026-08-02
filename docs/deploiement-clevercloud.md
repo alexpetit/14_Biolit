@@ -44,7 +44,7 @@ clever link app_3048d33c-6af4-4548-8af6-803974dd14bc --alias biolit-mb
 | `biolit-ingestion` (Task Docker, scaler **M**) | `app_a9ba8ca0-1212-42ee-9dcf-1a17158fae08` | pipeline complet, run 100% vert |
 | `biolit-label-studio` (web) | `app_b338e77e-3b2c-46e9-a26f-50c0c95db8e4` | LS 1.13.1, backend biolit-pg |
 | `biolit-metabase` (web) | `app_3048d33c-6af4-4548-8af6-803974dd14bc` | Metabase v0.50.32, app-DB MySQL dev |
-| add-on `biolit-pg` (PostgreSQL dev) | — | données biolit + LS |
+| add-on `biolit-pg` (PostgreSQL **xxs_sml**, 5,25€/mois) | — | données biolit + LS (upgradé depuis `dev` : le plan gratuit limite à 5 connexions, insuffisant pour LS seul → passé à 45 connexions) |
 | add-on `biolit-cellar` (Cellar S3) | — | images/crops/parquets + dumps migration |
 | add-on `biolit-mb-mysql` (MySQL dev) | — | app-DB Metabase (contournement) |
 
@@ -52,6 +52,38 @@ clever link app_3048d33c-6af4-4548-8af6-803974dd14bc --alias biolit-mb
 
 Optimisations validées : image **torch CPU-only** (7,2→3,3 Go) + traits de côte clippés **France**
 (1,24 Go→qq Mo) → l'ingestion tient dans un scaler **M**.
+
+### 2.1 Affichage des images dans Label Studio (Cloud Storage S3)
+
+Le pipeline écrit `path_s3` en base sous forme de chemin brut `s3://biolit-uploads/...`
+([ml/crop_inference/predict.py](../ml/crop_inference/predict.py),
+[ml/classification/classifier_s3.py](../ml/classification/classifier_s3.py)), réutilisé tel quel
+comme champ `"image"` des tasks LS ([biolit/label_studio.py](../biolit/label_studio.py)). Un
+`s3://` n'est pas chargeable directement par le navigateur : il faut que **chaque projet LS** ait
+une **Cloud Storage S3** configurée pour que LS resigne lui-même ces chemins en URLs HTTPS.
+
+Config actuelle (à refaire si les projets LS sont recréés — pas versionné, vit dans la DB LS) :
+- Un import storage S3 par projet (`Biolit Crops` id=1, `Biolit No Crops` id=2), créé via
+  `POST /api/storages/s3` (token API dans les identifiants de session) avec :
+  `bucket=biolit-uploads`, `s3_endpoint=https://cellar-c2.services.clever-cloud.com`,
+  `region_name=fr-par`, credentials = celles de l'addon `biolit-cellar`
+  (`clever addon env addon_633d9ab6-3167-4479-8fa6-f3cd7fc86b66`), `use_blob_urls=false`,
+  `presign=true`, `presign_ttl=1440`.
+- **CORS sur le bucket Cellar** (`biolit-uploads`) : sans ça, l'URL présignée fonctionne en
+  ouverture directe mais le viewer LS bloque le chargement (`There was an issue loading URL from
+  $image value`). Réglé via `put_bucket_cors` (boto3) avec `AllowedOrigins: ["*"]`,
+  `AllowedMethods: ["GET"]` — le bucket n'avait **aucune** config CORS avant.
+
+### 2.2 Compte Metabase existant
+
+Un admin `admin@biolit.fr` existe déjà dans l'app-DB `biolit-mb-mysql` (créé le 23/07, **26
+questions + 1 dashboard + 2 connexions déjà en place** — ce n'est pas une base vierge). Le mot de
+passe d'origine était perdu (aucune trace). Pas de SMTP configuré (pas de reset par email), pas de
+SSH sur ce type d'app Docker (pas d'accès à `reset-password` CLI de Metabase). Récupéré en écrivant
+directement un nouveau hash dans `core_user.password` (MySQL), format **bcrypt `$2a$`** sur
+`password_salt + mot_de_passe` (vérifié en testant contre `POST /api/session` — un `$2b$` généré
+par la lib Python par défaut ne fonctionne pas, Metabase attend `$2a$`). Nouveau mot de passe
+transmis hors-repo (canal sûr) — ne pas le reset à nouveau sans nécessité, le compte a du contenu réel.
 
 ## 3. Cible finale : org Clever Cloud **Planète Mer**
 
