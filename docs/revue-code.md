@@ -1,62 +1,53 @@
-# Revue de code — Biolit (à valider en équipe)
+# Revue de code - Biolit
 
-> Analyse réalisée après la mise en place du déploiement Clever Cloud.
-> Objectif : améliorer lisibilité, structure et documentation, sans changer le comportement.
-> Chaque changement touchant les dépendances ou le S3 doit être suivi d'un **rebuild + run de validation**.
+> Analyse apres preparation de la branche Clever Cloud.
+> Objectif: lisibilite, productionisation et cout d'exploitation reduit.
 
-## Architecture actuelle : 2 pipelines distincts
+## Architecture retenue
 
-- **`pipelines/run.py`** — pipeline **opérationnel** (Clever Cloud) :
-  ingestion API → géoloc → ML (crop + classification) → Label Studio → `db_finale`.
-  Utilise : `export_api`, `create_table`, `geoloc`, `flow_gatekeeper`, `label_studio`, `s3`,
-  `ml/crop_inference`, `ml/classification`.
-- **`pipelines/export_inpn.py`** — pipeline **enrichissement INPN** (séparé, couvert par des tests).
-  Utilise : `observations`, `taxref`, `lien_doris`, `inaturalist`, `visualisation`.
+- `backend/pipelines/run.py`: pipeline production Clever Cloud.
+- `labelstudio/`: image Label Studio pinnee pour migration.
+- `metabase/`: image Metabase pinnee pour migration.
+- `backend/biolit/settings.py`: point central pour les variables d'environnement.
 
-➡️ Documenter clairement cette dualité (deux flux, deux buts).
+Le backend ML tourne comme Task hebdomadaire. Label Studio et Metabase restent
+en apps web continues.
 
-## 🔴 P1 — Quick wins (faible risque, allègent l'image)
+## Nettoyage deja applique
 
-1. **Code mort à supprimer**
-   - `biolit/label_studio_postprocessing.py` — importé nulle part.
-   - `biolit/minio.py` — utilisé uniquement par le fichier mort ci-dessus.
-2. **Dépendances mortes / mal placées (`pyproject.toml`)**
-   - `minio`, `s3cmd` → retirer (code correspondant supprimé).
-   - `autodistill*`, `roboflow`, `supervision` → R&D uniquement (`ml/yolov8_DINO`).
-     À déplacer vers `pyproject-ml.toml` → allège encore l'image de prod.
+- Suppression des samples et artefacts versionnes:
+  `sample_data/`, anciens resultats BioCLIP/BioClipv2, datasets DINO/prompt YOLO.
+- Suppression des restes de template non utilises:
+  `d4g-utils/`, workflow associe, `tox.ini`.
+- Suppression de l'ancien `docker-compose` et de `.clever.json` versionne.
+- Suppression du code mort `biolit/minio.py` et
+  `biolit/label_studio_postprocessing.py`.
+- Suppression de la dataviz HTML locale (`biolit/visualisation`), remplacee en
+  production par Metabase.
+- Runtime resserre: plus de groupe R&D deploye, Docker installe `uv sync --no-dev`.
+- Regroupement final en 3 dossiers d'apps: `backend/`, `labelstudio/`,
+  `metabase/`.
 
-## 🟠 P2 — Duplication & cohérence
+## Robustesse deja amelioree
 
-3. **`create_s3_client` en double** — `biolit/s3.py` + `ml/classification/classifier_s3.py`
-   (ce dernier délègue déjà) → `classifier_s3` devrait juste importer celui de `biolit.s3`.
-4. **Client S3 recréé plusieurs fois dans `geoloc.py`** (module-level + re-création dans
-   `get_info_communes` / `get_trace_littoral`) → centraliser.
-5. **Config S3/DB éparse** — `create_s3_client` ne lit plus que `CELLAR_ADDON_*`
-   (le fallback `aws_*` / local a sauté lors d'un rewrite). Homogénéiser + réintroduire un
-   fallback propre pour le dev local.
+- S3/Cellar centralise dans `backend/biolit/s3.py`.
+- SSL S3 actif par defaut, desactivable seulement via `S3_VERIFY_SSL=false`.
+- Bucket S3, cle DORIS et projets Label Studio configurables.
+- `.clever.json`, `data/`, `outputs/`, `runs/`, `sample_data/` ignores.
+- Workflow GitHub d'ingestion passe en planification hebdomadaire.
 
-## 🟡 P3 — Robustesse / dette technique
+## Reste a surveiller
 
-- **`verify=False`** (SSL désactivé) dans `create_s3_client` → risque ; préférer
-  `addressing_style=path` + vérification du certificat.
-- **Inserts Postgres ligne par ligne** (`create_table.py` : `insert_dataframe`,
-  `insert_enriched_dataframe`, …) → lent sur ~26k lignes ; passer en `executemany` / `COPY`.
-- **`print()` au lieu de `LOGGER`** — `observations.py`, `lien_doris.py`.
-- **Valeurs en dur dispersées** — bucket `"biolit-uploads"`, clé `"doris_data.csv"`,
-  projets `"Biolit Crops"` / `"Biolit No Crops"`, chemins géoloc → centraliser en constantes/config.
+- Les inserts PostgreSQL ligne par ligne dans `backend/biolit/create_table.py` peuvent devenir
+  lents; a remplacer plus tard par `executemany`, `COPY` ou chargement batch.
+- `observations.py` et `lien_doris.py` gardent encore quelques sorties console a
+  convertir en logs structures.
+- Les plages de dates Label Studio dans `backend/pipelines/run.py` sont encore en dur.
+- Faire un run complet avec les vrais credentials apres restauration des dumps.
 
-## 🔵 P4 — Structure & documentation
+## Validation conseillee avant PR
 
-- **`run.py`** mélange helpers et orchestration → extraire des sous-fonctions par étape,
-  ajouter un docstring décrivant le flux.
-- **`ml/`** mélange prod (`crop_inference`, `classification`) et R&D (`yolov8_DINO`,
-  `prompt_textuel_yolo`, `BioCLIP/scripts`, `BioClipv2`) → séparer (ex. `ml/research/`) + README.
-- **Docstrings** manquantes sur des fonctions clés.
-- **README** décrit surtout l'ancien flux (Label Studio local) → actualiser : flux `run.py`,
-  variables d'environnement (`CELLAR_ADDON_*`, `POSTGRESQL_ADDON_URI`, `LABEL_STUDIO_*`,
-  `BIOLIT_API_URL`, `AWS_STORAGE_BUCKET_NAME`), procédure de déploiement Clever Cloud.
-
-## Ordre d'exécution proposé
-
-**P1** (code mort + deps) → **P2** (déduplication) → **P3 / P4** (dette + structure + doc), au fil de l'eau,
-avec rebuild + run de validation à chaque étape sensible.
+1. `cd backend && uv lock --check`
+2. `cd backend && uv sync --dry-run --locked --no-dev`
+3. `cd backend && python -m py_compile` sur `biolit`, `pipelines` et `ml`
+4. Run Clever Cloud sur donnees de validation apres migration PostgreSQL/S3

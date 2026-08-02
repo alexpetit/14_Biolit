@@ -7,8 +7,8 @@ name: Ingestion Biolit (Clever Task)
 
 on:
   schedule:
-    # 02:00 UTC tous les jours (les serveurs Clever Cloud sont en UTC)
-    - cron: "0 2 * * *"
+    # 02:00 UTC chaque lundi (les serveurs Clever Cloud sont en UTC)
+    - cron: "0 2 * * 1"
   workflow_dispatch: {}
 
 # Secrets à définir dans le repo (Settings → Secrets and variables → Actions) :
