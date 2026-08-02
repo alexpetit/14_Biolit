@@ -78,7 +78,8 @@ def _enrich_taxonomy_with_doris(
         doris_bytes = s3_client.get_object(
             Bucket=config.bucket_name, Key=config.doris_key
         )["Body"].read()
-        df_doris = pl.read_csv(io.BytesIO(doris_bytes))
+        # doris_data.csv est en réalité un fichier Parquet (magic PAR1)
+        df_doris = pl.read_parquet(io.BytesIO(doris_bytes))
         LOGGER.info("Fichier DORIS charge", species=len(df_doris))
 
         df_doris = df_doris.with_columns(

@@ -67,10 +67,10 @@ def push_tasks_label_studio_crops(project_title: str, df: pl.DataFrame):
                         if row["latitude"] and row["longitude"]
                         else "<em>Localisation non disponible</em>"
                     ),
-                    "lien_doris": row["lien_doris"] or "",
+                    "lien_doris": row.get("lien_doris") or "",
                     "lien_doris_html": (
-                        f'<a href="{row["lien_doris"]}" target="_blank">Voir sur DORIS</a>'
-                        if row["lien_doris"]
+                        f'<a href="{row.get("lien_doris")}" target="_blank">Voir sur DORIS</a>'
+                        if row.get("lien_doris")
                         else "<em>Aucun lien disponible</em>"
                     ),
                 }
