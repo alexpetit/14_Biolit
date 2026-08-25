@@ -3,7 +3,6 @@ from datetime import datetime
 import structlog
 from label_studio_sdk import LabelStudio
 
-from biolit.s3 import create_s3_client, public_url_for_s3_uri
 from biolit.settings import label_studio_api_key, label_studio_url
 
 
@@ -27,23 +26,19 @@ def recuperation_project_id(project_title: str) -> int | None:
     return project_id
 
 
-def _s3_client_for_tasks(rows: list[dict]):
-    if any(str(row.get("path_s3", "")).startswith("s3://") for row in rows):
-        return create_s3_client()
-    return None
-
-
 def push_tasks_label_studio_crops(project_title: str, df: pl.DataFrame):
     client = get_label_studio_client()
     project_id = recuperation_project_id(project_title)
     if project_id is not None:
         rows = df.to_dicts()
-        s3_client = _s3_client_for_tasks(rows)
         tasks = []
         for row in rows:
             tasks.append({
                 "data": {
-                    "image": public_url_for_s3_uri(row["path_s3"], client=s3_client),
+                    # Chemin s3:// brut : le Cloud Storage S3 du projet LS le resigne
+                    # à chaque affichage (URL présignée fraîche). Ne PAS stocker une URL
+                    # présignée figée ici : elle expire (7 j max) et casse l'affichage.
+                    "image": row["path_s3"],
                     "id_crops": row["id_crops"],
                     "id_observation": row.get("id_observation") or "",
                     "regne_yolo": row.get("regne_yolo") or "",
@@ -90,13 +85,14 @@ def push_tasks_label_studio_no_crops(project_title: str, df: pl.DataFrame):
 
     tasks = []
     rows = df.to_dicts()
-    s3_client = _s3_client_for_tasks(rows)
 
     for row in rows:
 
         tasks.append({
             "data": {
-                "image": public_url_for_s3_uri(row["path_s3"], client=s3_client),
+                # Chemin s3:// brut resigné par le Cloud Storage S3 du projet LS
+                # (voir push_tasks_label_studio_crops).
+                "image": row["path_s3"],
                 "id_observation": row["id_observation"],
                 "site": row["relais"] or "",
                 "region": row["reg_nom"] or "",
